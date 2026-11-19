@@ -4,14 +4,17 @@
 // Ubicación: catálogo vw_MiSaludEmpresas (DbServer/DbPort/DbInstance/DbName) o CLINICA_<ID>_DB_SERVER/_PORT/
 // _INSTANCE/_NAME, que lo pisan. Credenciales SOLO por entorno: CLINICA_<ID>_DB_PASSWORD (+ _USER, default
 // misalud_portal_ro; opcionales _ENCRYPT, _TRUST_CERT).
-// Las tablas que el rol no puede leer (imPassword, imPersonal, imSectores; imHCI hasta que S4 la incluya) se
-// detectan con HAS_PERMS_BY_NAME y se omiten en vez de romper la consulta.
+// De imPersonal e imPassword el rol solo lee columnas de nombre (GRANT por columna, infra/sql/s4_misalud_portal_ro.sql).
+// Lo que el rol no puede leer se detecta con HAS_PERMS_BY_NAME y se omite en vez de romper la consulta.
 const sql = require('mssql');
 const { config } = require('../config');
 const logger = require('../lib/logger');
 const { toIsoDate } = require('../lib/clarion');
 const { normalizeDni, normalizeSexo } = require('../lib/text');
 const { obtenerHabilitada } = require('./empresas');
+const { seccionesHci, signosDeControl } = require('./hciSecciones');
+
+const textoLimpio = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
 
 const pools = new Map();
 const columnCache = new Map();
@@ -78,6 +81,26 @@ async function puedeLeer(idEmpresa, tabla) {
   return ok;
 }
 
+/** Para tablas con GRANT por columna (imPersonal, imPassword): solo los nombres, nunca la tabla entera. */
+async function puedeLeerColumnas(idEmpresa, tabla, columnas) {
+  const key = `${idEmpresa}:${tabla}(${columnas.join(',')})`;
+  if (permisoCache.has(key)) return permisoCache.get(key);
+  const pool = await getPool(idEmpresa);
+  const request = pool.request().input('o', sql.NVarChar(256), `dbo.${tabla}`);
+  const checks = columnas.map((c, i) => {
+    request.input(`c${i}`, sql.NVarChar(128), c);
+    return `ISNULL(HAS_PERMS_BY_NAME(@o, 'OBJECT', 'SELECT', @c${i}, 'COLUMN'), 0)`;
+  });
+  const r = await request.query(`SELECT CASE WHEN ${checks.map((c) => `${c} = 1`).join(' AND ')} THEN 1 ELSE 0 END AS ok`);
+  const ok = Number(r.recordset[0]?.ok) === 1;
+  if (!ok) logger.warn('clinica_columnas_sin_permiso', { idEmpresa, tabla });
+  permisoCache.set(key, ok);
+  return ok;
+}
+
+const leerPersonal = (idEmpresa) => puedeLeerColumnas(idEmpresa, 'imPersonal', ['Valor', 'ApellidoNombre']);
+const leerPassword = (idEmpresa) => puedeLeerColumnas(idEmpresa, 'imPassword', ['CodOperador', 'Apellido', 'Nombres', 'ValorPersonal']);
+
 async function tieneColumna(idEmpresa, tabla, columna) {
   const key = `${idEmpresa}:${tabla}.${columna}`;
   if (columnCache.has(key)) return columnCache.get(key);
@@ -128,13 +151,37 @@ async function buscarPacientesPorDni(idEmpresa, dni) {
   }));
 }
 
+// Médico y sector como el encabezado de visita de iMedic (admissionSearch): DOCTORASISTIENDO, si no DOCTORCONSULTOR,
+// contra imPersonal; sector por VALORSECTOR contra imSectores. Hay bases sin IdSucursal en imVisita (Vidal): ahí el
+// "centro" es el sector de la visita.
 async function selectVisita(idEmpresa) {
-  const conSucursal = (await tieneColumna(idEmpresa, 'imVisita', 'IdSucursal')) && (await puedeLeer(idEmpresa, 'Sucursales'));
+  const [conIdSucursal, conSucursales, conSectorCol, conSectores, conAsis, conCons, conPersonal] = await Promise.all([
+    tieneColumna(idEmpresa, 'imVisita', 'IdSucursal'),
+    puedeLeer(idEmpresa, 'Sucursales'),
+    tieneColumna(idEmpresa, 'imVisita', 'VALORSECTOR'),
+    puedeLeer(idEmpresa, 'imSectores'),
+    tieneColumna(idEmpresa, 'imVisita', 'DOCTORASISTIENDO'),
+    tieneColumna(idEmpresa, 'imVisita', 'DOCTORCONSULTOR'),
+    leerPersonal(idEmpresa)
+  ]);
+  const conSucursal = conIdSucursal && conSucursales;
+  const conSector = conSectorCol && conSectores;
+  const sectorExpr = conSector ? `NULLIF(LTRIM(RTRIM(ISNULL(vsec.Descripcion, ''))), '')` : 'NULL';
+  const sucursalExpr = conSucursal ? `NULLIF(LTRIM(RTRIM(ISNULL(suc.Descripcion, ''))), '')` : 'NULL';
+  const medicos = [conAsis && conPersonal && 'dAsis', conCons && conPersonal && 'dCons'].filter(Boolean);
   return {
-    centroSelect: conSucursal
-      ? `LTRIM(RTRIM(ISNULL(suc.Descripcion, ''))) AS Centro`
-      : `CAST('' AS VARCHAR(200)) AS Centro`,
-    centroJoin: conSucursal ? 'LEFT JOIN dbo.Sucursales suc ON v.IdSucursal = suc.IdSucursal' : '',
+    centroSelect: `
+      ISNULL(COALESCE(${sucursalExpr}, ${sectorExpr}), '') AS Centro,
+      ISNULL(${sectorExpr}, '') AS SectorVisita,
+      ${medicos.length ? `ISNULL(COALESCE(${medicos.map((a) => `NULLIF(LTRIM(RTRIM(ISNULL(${a}.ApellidoNombre, ''))), '')`).join(', ')}), '')` : `''`} AS Medico`,
+    centroJoin: [
+      conSucursal && 'LEFT JOIN dbo.Sucursales suc ON v.IdSucursal = suc.IdSucursal',
+      conSector && `OUTER APPLY (SELECT TOP 1 s1.Descripcion FROM dbo.imSectores s1 WHERE LTRIM(RTRIM(s1.Valor)) = LTRIM(RTRIM(v.VALORSECTOR))) vsec`,
+      medicos.includes('dAsis') && 'OUTER APPLY (SELECT TOP 1 p1.ApellidoNombre FROM dbo.imPersonal p1 WHERE p1.Valor = v.DOCTORASISTIENDO) dAsis',
+      medicos.includes('dCons') && 'OUTER APPLY (SELECT TOP 1 p2.ApellidoNombre FROM dbo.imPersonal p2 WHERE p2.Valor = v.DOCTORCONSULTOR) dCons'
+    ]
+      .filter(Boolean)
+      .join('\n    '),
     base: `
       v.NUMEROVISITA AS NumeroVisita,
       v.IDPACIENTE AS IdPaciente,
@@ -167,6 +214,8 @@ const mapVisita = (x) => ({
   clase: x.Clase || '',
   servicio: x.Servicio || null,
   centro: x.Centro || null,
+  sector: x.SectorVisita || null,
+  medico: x.Medico || null,
   diagnostico: x.DiagnosticoCodigo ? { codigo: x.DiagnosticoCodigo, descripcion: x.DiagnosticoDescripcion || null } : null,
   tieneHcIngreso: Boolean(x.TieneHci),
   tieneEpicrisis: Boolean(x.TieneEpicrisis)
@@ -215,25 +264,40 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
   const row = visita.recordset[0];
   if (!row) return null;
 
-  const [conHci, conPassword, conPersonal, conSectores] = await Promise.all(
-    ['imHCI', 'imPassword', 'imPersonal', 'imSectores'].map((t) => puedeLeer(idEmpresa, t))
-  );
+  const [conHci, conSectores, conCtrl, conPassword, conPersonal] = await Promise.all([
+    ...['imHCI', 'imSectores', 'imInterCtrlFrecuente'].map((t) => puedeLeer(idEmpresa, t)),
+    leerPassword(idEmpresa),
+    leerPersonal(idEmpresa)
+  ]);
   const sectorSelect = () =>
     conSectores ? `LTRIM(RTRIM(ISNULL(sec.Descripcion, ''))) AS Sector` : `CAST('' AS VARCHAR(200)) AS Sector`;
-  const sectorJoin = (alias) => (conSectores ? `LEFT JOIN dbo.imSectores sec ON ${alias}.IdSector = sec.Valor` : '');
+  const sectorJoin = (alias) =>
+    conSectores
+      ? `OUTER APPLY (SELECT TOP 1 s0.Descripcion FROM dbo.imSectores s0 WHERE LTRIM(RTRIM(s0.Valor)) = LTRIM(RTRIM(${alias}.IdSector))) sec`
+      : '';
+  // Profesional de la HC como hcIngreso.service de iMedic: operador (imPassword) y, si no, imPersonal.
+  const profesionalHci = [
+    conPassword && `NULLIF(LTRIM(RTRIM(ISNULL(pw.Apellido, '') + ' ' + ISNULL(pw.Nombres, ''))), '')`,
+    conPersonal && `NULLIF(LTRIM(RTRIM(ISNULL(per.ApellidoNombre, ''))), '')`
+  ].filter(Boolean);
+  const personalWhere = conPassword
+    ? '(pw.ValorPersonal IS NOT NULL AND p3.Valor = pw.ValorPersonal) OR p3.Valor = hc.IdProfecional'
+    : 'p3.Valor = hc.IdProfecional';
 
   const [hci, epi] = await Promise.all([
     !conHci ? { recordset: [] } : pool.request().input('nv', sql.Int, numeroVisita).query(`
-      SELECT TOP 20
-        CONVERT(VARCHAR(10), hc.Fecha, 23) AS Fecha,
-        SUBSTRING(CONVERT(VARCHAR(8), hc.Fecha, 108), 1, 5) AS Hora,
-        CAST(hc.MotivoConsulta AS NVARCHAR(MAX)) AS MotivoConsulta,
-        CAST(hc.EnfermedadActual AS NVARCHAR(MAX)) AS EnfermedadActual,
-        ${sectorSelect()},
-        ${conPassword ? `LTRIM(RTRIM(ISNULL(pw.Apellido, '') + ' ' + ISNULL(pw.Nombres, '')))` : `CAST('' AS VARCHAR(200))`} AS Profesional
+      SELECT TOP 20 hc.*,
+        CONVERT(VARCHAR(10), hc.Fecha, 23) AS _Fecha,
+        SUBSTRING(CONVERT(VARCHAR(8), hc.Fecha, 108), 1, 5) AS _Hora,
+        ${sectorSelect().replace('AS Sector', 'AS _Sector')},
+        ${profesionalHci.length ? `ISNULL(COALESCE(${profesionalHci.join(', ')}), '')` : `''`} AS _Profesional
+        ${conCtrl ? `, ctrl.Pulso AS _CtrlPulso, ctrl.Maximo AS _CtrlMaximo, ctrl.Minimo AS _CtrlMinimo,
+          ctrl.FrecuenciaRespiratoria AS _CtrlFR, ctrl.Axilar AS _CtrlAxilar, ctrl.Hgt AS _CtrlHgt, ctrl.Saturometria AS _CtrlSat` : ''}
       FROM dbo.imHCI hc
-      ${conPassword ? 'LEFT JOIN dbo.imPassword pw ON pw.CodOperador = hc.IdProfecional' : ''}
+      ${conPassword ? 'OUTER APPLY (SELECT TOP 1 pw0.Apellido, pw0.Nombres, pw0.ValorPersonal FROM dbo.imPassword pw0 WHERE pw0.CodOperador = hc.IdProfecional) pw' : ''}
+      ${conPersonal ? `OUTER APPLY (SELECT TOP 1 p3.ApellidoNombre FROM dbo.imPersonal p3 WHERE ${personalWhere}) per` : ''}
       ${sectorJoin('hc')}
+      ${conCtrl ? 'OUTER APPLY (SELECT TOP 1 cf.* FROM dbo.imInterCtrlFrecuente cf WHERE cf.IdHci = hc.IdHCIngreso ORDER BY cf.Valor DESC) ctrl' : ''}
       WHERE hc.NumeroVisita = @nv
       ORDER BY hc.Fecha DESC`),
     pool.request().input('nv', sql.Int, numeroVisita).query(`
@@ -247,7 +311,7 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
         ${conPersonal ? `LTRIM(RTRIM(ISNULL(per.ApellidoNombre, '')))` : `CAST('' AS VARCHAR(200))`} AS Profesional,
         ${sectorSelect()}
       FROM dbo.imHCEpicrisis ep
-      ${conPersonal ? 'LEFT JOIN dbo.imPersonal per ON per.Valor = ep.Profecional' : ''}
+      ${conPersonal ? 'OUTER APPLY (SELECT TOP 1 p4.ApellidoNombre FROM dbo.imPersonal p4 WHERE p4.Valor = ep.Profecional) per' : ''}
       ${sectorJoin('ep')}
       OUTER APPLY (
         SELECT TOP 1 LTRIM(RTRIM(d0.Descripcion)) AS Descripcion FROM dbo.imDiagnosticos d0
@@ -263,14 +327,25 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
     diagnosticoEgreso: row.DiagnosticoEgresoCodigo
       ? { codigo: row.DiagnosticoEgresoCodigo, descripcion: row.DiagnosticoEgresoDescripcion || null }
       : null,
-    hcIngreso: hci.recordset.map((h) => ({
-      fecha: h.Fecha,
-      hora: h.Hora,
-      motivoConsulta: h.MotivoConsulta || null,
-      enfermedadActual: h.EnfermedadActual || null,
-      profesional: h.Profesional || null,
-      sector: h.Sector || null
-    })),
+    hcIngreso: hci.recordset.map((h) => {
+      const { textos, secciones } = seccionesHci(h);
+      const signos = signosDeControl({ Pulso: h._CtrlPulso, Maximo: h._CtrlMaximo, Minimo: h._CtrlMinimo, FrecuenciaRespiratoria: h._CtrlFR, Axilar: h._CtrlAxilar, Hgt: h._CtrlHgt, Saturometria: h._CtrlSat });
+      if (signos.length) {
+        const sv = secciones.find((x) => x.titulo === 'Signos vitales');
+        if (sv) sv.campos.unshift(...signos);
+        else secciones.unshift({ titulo: 'Signos vitales', campos: signos });
+      }
+      return {
+        fecha: h._Fecha,
+        hora: h._Hora,
+        motivoConsulta: textoLimpio(h.MotivoConsulta),
+        enfermedadActual: textoLimpio(h.EnfermedadActual),
+        textos,
+        secciones,
+        profesional: h._Profesional || null,
+        sector: h._Sector || null
+      };
+    }),
     epicrisis: epi.recordset.map((e) => ({
       fecha: e.Fecha,
       hora: e.Hora,

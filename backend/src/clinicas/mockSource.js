@@ -38,8 +38,14 @@ const PLANTILLAS = [
       enfermedadActual:
         'Paciente que consulta por odinofagia progresiva, fiebre y malestar general. Niega tos y dificultad respiratoria. Al examen: fauces congestivas sin exudado, sin adenopatías palpables.',
       profesional: 'Dra. Paula Fernández',
-      sector: 'Consultorios externos'
-    }
+      sector: 'Consultorios externos',
+      textos: [],
+      secciones: [
+        { titulo: 'Signos vitales', campos: [{ campo: 'Temperatura axilar', valor: '38.5 °C' }, { campo: 'Frecuencia cardíaca', valor: '92 lpm' }] },
+        { titulo: 'Cuello', campos: [{ campo: 'ADENOPATIAS', valor: 'no' }] }
+      ]
+    },
+    medico: 'FERNANDEZ PAULA'
   },
   {
     empresa: SARMIENTO,
@@ -161,6 +167,7 @@ function sembrarVisitas(idPacientePorEmpresa) {
       clase: p.clase,
       servicio: p.servicio,
       centro: p.centro,
+      medico: p.medico || null,
       diagnostico: p.diagnostico,
       diagnosticoEgreso: p.diagnosticoEgreso || null,
       hcIngreso: p.hcIngreso ? [{ fecha: fechaIngreso, hora: p.hora, ...p.hcIngreso }] : [],

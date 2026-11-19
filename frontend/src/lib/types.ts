@@ -35,6 +35,8 @@ export type HcIngreso = {
   hora: string | null;
   motivoConsulta: string | null;
   enfermedadActual: string | null;
+  textos?: { titulo: string; texto: string }[];
+  secciones?: { titulo: string; campos: { campo: string; valor: string }[] }[];
   profesional: string | null;
   sector: string | null;
 };

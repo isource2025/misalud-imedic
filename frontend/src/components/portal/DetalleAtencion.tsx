@@ -202,6 +202,26 @@ export function DetalleAtencion({ id }: { id: string }) {
                 </p>
                 {h.motivoConsulta && <Bloque titulo="Motivo de consulta">{h.motivoConsulta}</Bloque>}
                 {h.enfermedadActual && <Bloque titulo="Enfermedad actual">{h.enfermedadActual}</Bloque>}
+                {h.textos?.map((t) => (
+                  <Bloque key={t.titulo} titulo={t.titulo}>
+                    {t.texto}
+                  </Bloque>
+                ))}
+                {h.secciones?.map((s) => (
+                  <Bloque key={s.titulo} titulo={s.titulo}>
+                    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                      {s.campos.map((c, j) => (
+                        <div key={j} className="flex flex-wrap gap-x-2 border-b border-slate-50 pb-1.5">
+                          <dt className="text-sm font-medium text-slate-500">{c.campo}:</dt>
+                          <dd className="whitespace-pre-line text-[15px] text-slate-800">{c.valor}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </Bloque>
+                ))}
+                {!h.motivoConsulta && !h.enfermedadActual && !h.textos?.length && !h.secciones?.length && (
+                  <Vacio>Esta historia de ingreso no tiene datos cargados.</Vacio>
+                )}
               </div>
             ))}
 

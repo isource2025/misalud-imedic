@@ -109,7 +109,8 @@ async function detalle(cuenta, idOpaco) {
   return {
     ...base,
     id: idOpaco,
-    profesional: d.hcIngreso.find((h) => h.profesional)?.profesional || epicrisis.find((e) => e.profesional)?.profesional || null,
+    profesional:
+      d.medico || d.hcIngreso.find((h) => h.profesional)?.profesional || epicrisis.find((e) => e.profesional)?.profesional || null,
     diagnosticoEgreso: secciones.has('diagnostico') ? d.diagnosticoEgreso || null : null,
     hcIngreso: secciones.has('hcIngreso') ? d.hcIngreso : [],
     epicrisis,
