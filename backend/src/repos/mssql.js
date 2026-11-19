@@ -200,6 +200,26 @@ function createMssqlRepos() {
         verificadoEn: x.VerificadoEn,
         creadoEn: x.CreadoEn
       }));
+    },
+    async registrarBusqueda(idCuenta, idEmpresa) {
+      await (await req())
+        .input('c', sql.BigInt, idCuenta)
+        .input('e', sql.Int, idEmpresa)
+        .query(`
+          UPDATE dbo.BusquedasVinculo SET BuscadoEn = SYSUTCDATETIME() WHERE IdCuenta = @c AND IdEmpresa = @e;
+          IF @@ROWCOUNT = 0
+            BEGIN TRY
+              INSERT INTO dbo.BusquedasVinculo (IdCuenta, IdEmpresa) VALUES (@c, @e);
+            END TRY
+            BEGIN CATCH
+              IF ERROR_NUMBER() <> 2627 THROW;
+            END CATCH`);
+    },
+    async busquedasPorCuenta(idCuenta) {
+      const r = await (await req())
+        .input('c', sql.BigInt, idCuenta)
+        .query('SELECT IdEmpresa, BuscadoEn FROM dbo.BusquedasVinculo WHERE IdCuenta = @c');
+      return new Map(r.recordset.map((x) => [x.IdEmpresa, x.BuscadoEn]));
     }
   };
 

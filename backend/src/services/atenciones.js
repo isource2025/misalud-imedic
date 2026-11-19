@@ -2,7 +2,7 @@
 // si alguna no responde se informa en clinicasNoDisponibles y se muestra lo que llegó.
 const { listarHabilitadas } = require('../clinicas/empresas');
 const { getClinicSource, conTimeout } = require('../clinicas/source');
-const { confirmadosPorEmpresa } = require('./vinculos');
+const { confirmadosPorEmpresa, asegurarBusqueda } = require('./vinculos');
 const cache = require('./atencionesCache');
 const { sealId, openId } = require('../lib/crypto');
 const { notFound } = require('../lib/errors');
@@ -36,6 +36,7 @@ function publicar(idCuenta, empresa, v) {
 }
 
 async function listar(cuenta, filtros = {}) {
+  await asegurarBusqueda(cuenta).catch((err) => logger.warn('vinculos_rebusqueda_error', { idCuenta: cuenta.id, error: err.message }));
   const [empresas, vinculos] = await Promise.all([listarHabilitadas(), confirmadosPorEmpresa(cuenta.id)]);
   const objetivo = empresas.filter((e) => vinculos.has(e.idEmpresa));
   const source = getClinicSource();

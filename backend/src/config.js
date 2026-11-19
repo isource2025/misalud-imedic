@@ -42,6 +42,7 @@ const schema = z.object({
   CLINICA_DB_USER_DEFAULT: z.string().default('misalud_portal_ro'),
   CLINICA_TIMEOUT_MS: z.coerce.number().int().default(8000),
   CLINICA_CACHE_SEG: z.coerce.number().int().default(180),
+  VINCULOS_REBUSQUEDA_HORAS: z.coerce.number().int().default(24),
 
   RENAPER_MODE: z.enum(['mock', 'imedic-proxy']).default('imedic-proxy'),
   RENAPER_PROXY_BASE_URL: z.string().optional(),

@@ -5,6 +5,7 @@ function createMemoryRepos() {
     codigos: new Map(),
     sesiones: new Map(),
     vinculos: new Map(),
+    busquedas: new Map(),
     empresas: new Map(),
     emails: new Map(),
     auditoria: []
@@ -119,6 +120,17 @@ function createMemoryRepos() {
     },
     async listarPorCuenta(idCuenta) {
       return [...db.vinculos.values()].filter((v) => v.idCuenta === idCuenta).map(clone);
+    },
+    async registrarBusqueda(idCuenta, idEmpresa) {
+      db.busquedas.set(`${idCuenta}:${idEmpresa}`, now());
+    },
+    async busquedasPorCuenta(idCuenta) {
+      const map = new Map();
+      for (const [k, fecha] of db.busquedas) {
+        const [c, e] = k.split(':').map(Number);
+        if (c === idCuenta) map.set(e, fecha);
+      }
+      return map;
     }
   };
 

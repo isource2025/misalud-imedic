@@ -5,6 +5,7 @@ const { getClinicSource, conTimeout } = require('../clinicas/source');
 const { nameSimilarity, normalizeDni } = require('../lib/text');
 const atencionesCache = require('./atencionesCache');
 const logger = require('../lib/logger');
+const { config } = require('../config');
 
 /** Evalúa una ficha de imPacientes contra la cuenta verificada. */
 function evaluarCandidato(cuenta, ficha) {
@@ -30,9 +31,9 @@ function evaluarCandidato(cuenta, ficha) {
 }
 
 /** Recorre las clínicas habilitadas buscando fichas del DNI de la cuenta y actualiza los vínculos. */
-async function buscar(cuenta, { auditar } = {}) {
+async function buscar(cuenta, { auditar, soloEmpresas } = {}) {
   if (!cuenta.identidadVerificadaEn) throw new Error('La cuenta no tiene identidad verificada');
-  const empresas = await listarHabilitadas();
+  const empresas = soloEmpresas || (await listarHabilitadas());
   const source = getClinicSource();
   const repos = getRepos();
 
@@ -46,6 +47,7 @@ async function buscar(cuenta, { auditar } = {}) {
         const v = await repos.vinculos.upsert({ idCuenta: cuenta.id, idEmpresa: empresa.idEmpresa, idPaciente: ficha.idPaciente, ...ev });
         if (v.cambio && auditar) auditar({ accion: `vinculo_${ev.estado}`, idEmpresa: empresa.idEmpresa, recurso: `vinculo:${v.id}` });
       }
+      await repos.vinculos.registrarBusqueda(cuenta.id, empresa.idEmpresa);
       return conteo;
     })
   );
@@ -62,8 +64,33 @@ async function buscar(cuenta, { auditar } = {}) {
   });
 }
 
+const enCurso = new Map();
+
+/**
+ * Busca en las clínicas habilitadas donde la cuenta nunca se buscó (p. ej. habilitadas después de validar identidad)
+ * o cuya última búsqueda supera VINCULOS_REBUSQUEDA_HORAS. Una clínica caída no se registra y se reintenta la próxima vez.
+ */
+async function asegurarBusqueda(cuenta) {
+  if (!cuenta.identidadVerificadaEn) return;
+  if (enCurso.has(cuenta.id)) return enCurso.get(cuenta.id);
+  const p = (async () => {
+    const [empresas, busquedas] = await Promise.all([listarHabilitadas(), getRepos().vinculos.busquedasPorCuenta(cuenta.id)]);
+    const limite = Date.now() - config.VINCULOS_REBUSQUEDA_HORAS * 3_600_000;
+    const pendientes = empresas.filter((e) => {
+      const fecha = busquedas.get(e.idEmpresa);
+      return !fecha || new Date(fecha).getTime() < limite;
+    });
+    if (!pendientes.length) return;
+    logger.info('vinculos_rebusqueda', { idCuenta: cuenta.id, empresas: pendientes.map((e) => e.idEmpresa) });
+    await buscar(cuenta, { soloEmpresas: pendientes });
+  })().finally(() => enCurso.delete(cuenta.id));
+  enCurso.set(cuenta.id, p);
+  return p;
+}
+
 /** Vínculos de la cuenta agrupados por clínica, sin exponer IDPaciente. */
 async function resumen(cuenta) {
+  await asegurarBusqueda(cuenta).catch((err) => logger.warn('vinculos_rebusqueda_error', { idCuenta: cuenta.id, error: err.message }));
   const [vinculos, empresas] = await Promise.all([getRepos().vinculos.listarPorCuenta(cuenta.id), listarHabilitadas()]);
   return empresas.map((e) => {
     const propios = vinculos.filter((v) => v.idEmpresa === e.idEmpresa);
@@ -92,4 +119,4 @@ async function confirmadosPorEmpresa(idCuenta) {
   return map;
 }
 
-module.exports = { evaluarCandidato, buscar, resumen, confirmadosPorEmpresa };
+module.exports = { evaluarCandidato, buscar, asegurarBusqueda, resumen, confirmadosPorEmpresa };
