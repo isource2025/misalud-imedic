@@ -106,7 +106,7 @@ test('cuenta demo: ficha duplicada vinculada y homónimo descartado', async () =
   const c = await cliente();
   await c.post('/api/auth/login', { dni: DEMO.dni, password: DEMO.password });
   const r = await c.agent.get('/api/vinculos');
-  const guemes = r.body.clinicas.find((x) => x.id === 901);
+  const guemes = r.body.clinicas.find((x) => x.id === 103);
   const sarmiento = r.body.clinicas.find((x) => x.id === 101);
   assert.equal(guemes.fichasConfirmadas, 2);
   assert.equal(sarmiento.fichasConfirmadas, 1);

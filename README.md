@@ -93,8 +93,6 @@ Proyecto con *root directory* `frontend/` y `BACKEND_URL` apuntando al servicio 
 
 ## Pendiente
 
-- Confirmar el `IDEMPRESA` de Güemes (Sanatorio Materno Infantil) y habilitarlo en `EmpresasPortal`
-  (ver `backend/db/migrations/002_empresas_piloto.sql`). No es 102: ese es Colman.
 - El script S4 de iMedic deja `imHCI` en Fase 2, pero el MVP muestra la historia clínica de ingreso. Hasta que
   `imHCI` pase a la lista del MVP, esa pestaña queda vacía con el login de solo lectura.
 - Adjuntos e imágenes (PACS) en Fase 2, usando `backend/src/clinicas/clinicaHttp.js`.

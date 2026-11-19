@@ -3,8 +3,7 @@ const { config } = require('../config');
 const { normalizeDni } = require('../lib/text');
 
 const SARMIENTO = 101;
-// Id ficticio del modo mock: el IDEMPRESA real de Güemes se confirma con el super admin de iMedic (102 es Colman).
-const GUEMES = 901;
+const GUEMES = 103;
 
 const demora = () => new Promise((r) => setTimeout(r, 250 + Math.floor(Math.random() * 550)));
 
