@@ -51,13 +51,12 @@ test('datos clínicos requieren sesión', async () => {
 
 test('flujo completo: registro → email → identidad RENAPER → atenciones → detalle', async () => {
   const c = await cliente();
-  const reg = await c.post('/api/auth/registro', {
-    dni: '28.765.433',
-    sexo: 'M',
-    nombreCompleto: 'Juan Pablo Pérez',
-    email: 'juan@ejemplo.com',
-    password: 'una-clave-segura'
-  });
+  const datos = { dni: '28.765.433', sexo: 'M', nombreCompleto: 'Juan Pablo Pérez', email: 'juan@ejemplo.com', password: 'una-clave-segura' };
+  const sinTelefono = await c.post('/api/auth/registro', datos);
+  assert.equal(sinTelefono.status, 400);
+  assert.ok(sinTelefono.body.error.campos.telefono);
+
+  const reg = await c.post('/api/auth/registro', { ...datos, telefono: '(0379) 15-4123456' });
   assert.equal(reg.status, 202);
   assert.match(reg.body.codigoDemo, /^\d{6}$/);
 

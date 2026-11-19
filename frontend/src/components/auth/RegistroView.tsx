@@ -16,6 +16,7 @@ import { OtpInput } from "@/components/ui/OtpInput";
 import { Segmented } from "@/components/ui/Segmented";
 import { api, ApiError, mensajeError } from "@/lib/api";
 import { borrarPendiente, guardarPendiente, leerPendiente } from "@/lib/session";
+import { ERROR_TELEFONO, telefonoArValido } from "@/lib/telefono";
 
 const PASOS = ["Tus datos", "Email", "Identidad"];
 
@@ -70,7 +71,14 @@ export function RegistroView() {
   async function enviarDatos(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setErrores({});
+    const faltan: Record<string, string> = {};
+    if (!/^\d{7,9}$/.test(form.dni.replace(/\D/g, ""))) faltan.dni = "Ingresá tu DNI (7 a 9 dígitos)";
+    if (form.nombreCompleto.trim().length < 5) faltan.nombreCompleto = "Ingresá tu nombre y apellido";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) faltan.email = "Ingresá un email válido";
+    if (!telefonoArValido(form.telefono)) faltan.telefono = form.telefono.trim() ? ERROR_TELEFONO : "Ingresá tu teléfono";
+    if (form.password.length < 10) faltan.password = "La contraseña debe tener al menos 10 caracteres";
+    setErrores(faltan);
+    if (Object.keys(faltan).length) return;
     setEnviando(true);
     try {
       const r = await api<{ codigoDemo?: string }>("/auth/registro", { method: "POST", body: form });
@@ -151,7 +159,7 @@ export function RegistroView() {
             </div>
             <Field label="Nombre y apellido" value={form.nombreCompleto} onChange={set("nombreCompleto")} error={errores.nombreCompleto} autoComplete="name" />
             <Field label="Email" type="email" value={form.email} onChange={set("email")} error={errores.email} autoComplete="email" />
-            <Field label="Teléfono (opcional)" type="tel" value={form.telefono} onChange={set("telefono")} error={errores.telefono} autoComplete="tel" />
+            <Field label="Teléfono" type="tel" inputMode="tel" placeholder="Ej.: 379 4123456" value={form.telefono} onChange={set("telefono")} error={errores.telefono} autoComplete="tel" />
             <div>
               <Field
                 label="Contraseña"

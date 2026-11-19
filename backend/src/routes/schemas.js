@@ -12,15 +12,36 @@ const password = z
 
 const codigo = z.string({ error: 'Ingresá el código' }).regex(/^\d{6}$/, 'El código tiene 6 dígitos');
 
+/**
+ * Teléfono argentino → "+54" + 10 dígitos (característica + número). Acepta +54, 9 de celular, 0 de larga
+ * distancia y el 15 local después de la característica (2 a 4 dígitos). Devuelve null si no es válido.
+ */
+function normalizarTelefonoAr(v) {
+  let d = String(v ?? '').replace(/\D/g, '');
+  if (d.startsWith('54')) d = d.slice(2);
+  if (d.startsWith('9') && d.length === 11) d = d.slice(1);
+  if (d.startsWith('0')) d = d.slice(1);
+  if (d.length === 12) {
+    const sin15 = [2, 3, 4].map((i) => (d.slice(i, i + 2) === '15' ? d.slice(0, i) + d.slice(i + 2) : null)).find(Boolean);
+    if (sin15) d = sin15;
+  }
+  return /^[1-9]\d{9}$/.test(d) ? `+54${d}` : null;
+}
+
 const telefono = z
-  .string()
-  .transform((v) => v.replace(/[^\d+]/g, ''))
-  .refine((v) => v === '' || /^\+?\d{8,15}$/.test(v), 'Teléfono inválido')
-  .optional();
+  .string({ error: 'Ingresá tu teléfono' })
+  .trim()
+  .min(1, 'Ingresá tu teléfono')
+  .transform((v, ctx) => {
+    const n = normalizarTelefonoAr(v);
+    if (!n) ctx.addIssue({ code: 'custom', message: 'Ingresá un teléfono argentino con característica, p. ej. 379 4123456' });
+    return n ?? z.NEVER;
+  });
 
 const fechaIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida');
 
 module.exports = {
+  normalizarTelefonoAr,
   registro: z.object({
     dni,
     sexo: z.enum(['M', 'F', 'X'], { error: 'Elegí el sexo que figura en tu DNI' }),

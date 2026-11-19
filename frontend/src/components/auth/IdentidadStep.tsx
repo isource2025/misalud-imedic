@@ -1,21 +1,22 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Building2, Camera, CheckCircle2, CircleDashed, Fingerprint, ShieldCheck, WifiOff } from "lucide-react";
+import { Building2, Camera, CheckCircle2, Fingerprint, ShieldCheck, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
 import { api, mensajeError } from "@/lib/api";
-import { formatearDni } from "@/lib/format";
-import type { BusquedaClinica, Cuenta } from "@/lib/types";
+import { cantidadAtenciones, clinicasConAtenciones, SIN_ATENCIONES } from "@/lib/clinicas";
+import { fechaLarga, formatearDni } from "@/lib/format";
+import type { AtencionesResponse, Cuenta } from "@/lib/types";
 
 const MENSAJES = ["Consultando RENAPER…", "Comparando tus datos…", "Buscando tus atenciones en las clínicas…"];
 
 export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => void }) {
   const [estado, setEstado] = useState<"inicio" | "verificando" | "listo">("inicio");
   const [error, setError] = useState<string | null>(null);
-  const [clinicas, setClinicas] = useState<BusquedaClinica[]>([]);
+  const [resultado, setResultado] = useState<AtencionesResponse | null>(null);
   const [msg, setMsg] = useState(0);
 
   useEffect(() => {
@@ -29,11 +30,8 @@ export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => vo
     setMsg(0);
     setEstado("verificando");
     try {
-      const r = await api<{ cuenta: Cuenta; clinicas: BusquedaClinica[] }>("/auth/identidad/verificar", {
-        method: "POST",
-        body: { metodo: "renaper_dni" },
-      });
-      setClinicas(r.clinicas);
+      await api<{ cuenta: Cuenta }>("/auth/identidad/verificar", { method: "POST", body: { metodo: "renaper_dni" } });
+      setResultado(await api<AtencionesResponse>("/atenciones"));
       setEstado("listo");
     } catch (err) {
       setError(mensajeError(err));
@@ -41,7 +39,8 @@ export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => vo
     }
   }
 
-  const vinculadas = clinicas.filter((c) => (c.confirmado ?? 0) > 0);
+  const conAtenciones = clinicasConAtenciones(resultado?.atenciones ?? []);
+  const noDisponibles = resultado?.clinicasNoDisponibles ?? [];
 
   return (
     <AnimatePresence mode="wait">
@@ -125,12 +124,17 @@ export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => vo
           </motion.div>
           <h1 className="text-center text-[28px] font-semibold tracking-tight">¡Listo, sos vos!</h1>
           <p className="mt-2 text-center text-slate-500">
-            {vinculadas.length
-              ? `Encontramos tu ficha de paciente en ${vinculadas.length} ${vinculadas.length === 1 ? "clínica" : "clínicas"}.`
-              : "Validamos tu identidad. Todavía no encontramos fichas con tu DNI en las clínicas del portal."}
+            {conAtenciones.length
+              ? `Encontramos ${cantidadAtenciones(conAtenciones.reduce((n, c) => n + c.cantidad, 0))} en ${conAtenciones.length === 1 ? "1 clínica" : `${conAtenciones.length} clínicas`}.`
+              : noDisponibles.length
+                ? "Validamos tu identidad. Algunas clínicas no respondieron; tus atenciones van a aparecer en tu portal."
+                : `Validamos tu identidad. ${SIN_ATENCIONES}`}
           </p>
           <ul className="mt-8 space-y-2.5">
-            {clinicas.map((c, i) => (
+            {[
+              ...conAtenciones.map((c) => ({ id: c.id, nombre: c.nombre, detalle: `${cantidadAtenciones(c.cantidad)} · última el ${fechaLarga(c.ultima)}`, ok: true })),
+              ...noDisponibles.map((c) => ({ id: c.id, nombre: c.nombre, detalle: "No respondió ahora; reintentamos al entrar", ok: false })),
+            ].map((c, i) => (
               <motion.li
                 key={c.id}
                 initial={{ opacity: 0, x: -12 }}
@@ -143,23 +147,9 @@ export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => vo
                 </span>
                 <span className="flex-1">
                   <span className="block text-sm font-semibold">{c.nombre}</span>
-                  <span className="block text-xs text-slate-500">
-                    {!c.disponible
-                      ? "No disponible ahora; reintentamos más tarde"
-                      : c.confirmado
-                        ? "Historia clínica vinculada"
-                        : c.pendiente
-                          ? "Vínculo en revisión"
-                          : "Sin registros con tu DNI"}
-                  </span>
+                  <span className="block text-xs text-slate-500">{c.detalle}</span>
                 </span>
-                {!c.disponible ? (
-                  <WifiOff className="size-5 text-amber-500" />
-                ) : c.confirmado ? (
-                  <CheckCircle2 className="size-5 text-emerald-500" />
-                ) : (
-                  <CircleDashed className="size-5 text-slate-300" />
-                )}
+                {c.ok ? <CheckCircle2 className="size-5 text-emerald-500" /> : <WifiOff className="size-5 text-amber-500" />}
               </motion.li>
             ))}
           </ul>

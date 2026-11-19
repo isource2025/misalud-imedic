@@ -1,46 +1,36 @@
 "use client";
 
-import clsx from "clsx";
+import Link from "next/link";
 import { motion } from "motion/react";
-import { Building2, CheckCircle2, Clock3, RefreshCw, SearchX } from "lucide-react";
+import { ArrowRight, Building2, RefreshCw, Stethoscope } from "lucide-react";
 import { useState } from "react";
+import { AvisoClinicas } from "@/components/portal/AvisoClinicas";
 import { Cascada, itemCascada } from "@/components/portal/Intro";
 import { Alert } from "@/components/ui/Alert";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
 import { api, mensajeError } from "@/lib/api";
-import { fechaLarga } from "@/lib/format";
+import { cantidadAtenciones, clinicasConAtenciones, SIN_ATENCIONES } from "@/lib/clinicas";
+import { fechaLarga, haceCuanto } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
-import type { BusquedaClinica, ClinicaVinculo } from "@/lib/types";
-
-const ESTADO = {
-  vinculada: { label: "Vinculada", tone: "green" as const, Icon: CheckCircle2 },
-  pendiente: { label: "En revisión", tone: "amber" as const, Icon: Clock3 },
-  sin_registros: { label: "Sin registros", tone: "slate" as const, Icon: SearchX },
-};
+import type { AtencionesResponse } from "@/lib/types";
 
 export default function ClinicasPage() {
-  const { data, error, cargando, setData } = useApi<{ clinicas: ClinicaVinculo[] }>("/vinculos");
-  const [buscando, setBuscando] = useState(false);
-  const [aviso, setAviso] = useState<{ tone: "success" | "error" | "offline"; msg: string } | null>(null);
+  const { data, error, cargando, recargar } = useApi<AtencionesResponse>("/atenciones");
+  const [actualizando, setActualizando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const clinicas = clinicasConAtenciones(data?.atenciones ?? []);
 
-  async function buscar() {
-    setBuscando(true);
+  async function actualizar() {
+    setActualizando(true);
     setAviso(null);
     try {
-      const r = await api<{ resultado: BusquedaClinica[]; clinicas: ClinicaVinculo[] }>("/vinculos/buscar", { method: "POST" });
-      setData({ clinicas: r.clinicas });
-      const caidas = r.resultado.filter((x) => !x.disponible);
-      setAviso(
-        caidas.length
-          ? { tone: "offline", msg: `${caidas.map((c) => c.nombre).join(", ")} no respondió. Probá de nuevo más tarde.` }
-          : { tone: "success", msg: "Listo. Revisamos todas las clínicas habilitadas." }
-      );
+      await api("/vinculos/buscar", { method: "POST" });
+      recargar();
     } catch (err) {
-      setAviso({ tone: "error", msg: mensajeError(err) });
+      setAviso(mensajeError(err));
     } finally {
-      setBuscando(false);
+      setActualizando(false);
     }
   }
 
@@ -49,18 +39,19 @@ export default function ClinicasPage() {
       <motion.div variants={itemCascada} className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-[32px] font-semibold tracking-tight">Mis clínicas</h1>
-          <p className="mt-1 max-w-xl text-slate-500">Las clínicas iMedic habilitadas donde encontramos tu historia clínica con tu DNI.</p>
+          <p className="mt-1 max-w-xl text-slate-500">Las clínicas iMedic donde te atendiste.</p>
         </div>
-        <Button variant="secondary" onClick={buscar} loading={buscando}>
-          {!buscando && <RefreshCw className="size-4" />} Buscar de nuevo
+        <Button variant="secondary" onClick={actualizar} loading={actualizando}>
+          {!actualizando && <RefreshCw className="size-4" />} Actualizar
         </Button>
       </motion.div>
 
-      {aviso && <Alert tone={aviso.tone}>{aviso.msg}</Alert>}
+      {aviso && <Alert tone="error">{aviso}</Alert>}
       {error && <Alert tone="error">{error}</Alert>}
+      {data && <AvisoClinicas clinicas={data.clinicasNoDisponibles} onReintentar={recargar} />}
 
-      <motion.div variants={itemCascada} className="grid gap-4 sm:grid-cols-2">
-        {cargando || buscando ? (
+      <motion.div variants={itemCascada}>
+        {cargando || actualizando ? (
           <Cargando>
             <div className="grid gap-4 sm:grid-cols-2">
               {[0, 1].map((i) => (
@@ -77,10 +68,9 @@ export default function ClinicasPage() {
               ))}
             </div>
           </Cargando>
-        ) : (
-          data?.clinicas.map((c, i) => {
-            const e = ESTADO[c.estado];
-            return (
+        ) : clinicas.length ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {clinicas.map((c, i) => (
               <motion.article
                 key={c.id}
                 initial={{ opacity: 0, y: 12 }}
@@ -88,26 +78,33 @@ export default function ClinicasPage() {
                 className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft"
               >
                 <div className="flex items-center gap-4">
-                  <span className={clsx("inline-flex size-12 items-center justify-center rounded-2xl", c.estado === "vinculada" ? "bg-brand-50 text-brand-600" : "bg-slate-50 text-slate-400")}>
+                  <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
                     <Building2 className="size-6" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <h2 className="text-lg font-semibold tracking-tight">{c.nombre}</h2>
-                    <Badge tone={e.tone} className="mt-1">
-                      <e.Icon className="size-3" /> {e.label}
-                    </Badge>
+                    <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-500">
+                      <Stethoscope className="size-3.5" /> {cantidadAtenciones(c.cantidad)}
+                    </p>
                   </div>
                 </div>
                 <p className="mt-5 text-sm text-slate-500">
-                  {c.estado === "vinculada"
-                    ? `${c.fichasConfirmadas === 1 ? "1 ficha" : `${c.fichasConfirmadas} fichas`} con tu DNI${c.verificadoEn ? ` · desde el ${fechaLarga(c.verificadoEn)}` : ""}.`
-                    : c.estado === "pendiente"
-                      ? "Encontramos una ficha con tu DNI pero faltan datos para confirmar que sos vos. La revisa el equipo de la clínica."
-                      : "No encontramos atenciones con tu DNI en esta clínica."}
+                  Última atención: <b className="font-semibold text-ink">{fechaLarga(c.ultima)}</b> ({haceCuanto(c.ultima)})
                 </p>
               </motion.article>
-            );
-          })
+            ))}
+          </div>
+        ) : (
+          !error && (
+            <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-200 p-12 text-center">
+              <Building2 className="size-10 text-slate-300" />
+              <p className="mt-3 font-medium">{SIN_ATENCIONES}</p>
+              <p className="mt-1 text-sm text-slate-500">Cuando te atiendas en una clínica iMedic, la vas a ver acá.</p>
+              <Link href="/inicio" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
+                Volver al inicio <ArrowRight className="size-4" />
+              </Link>
+            </div>
+          )
         )}
       </motion.div>
     </Cascada>

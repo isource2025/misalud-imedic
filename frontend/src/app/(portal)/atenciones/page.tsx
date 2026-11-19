@@ -10,6 +10,7 @@ import { Cascada, itemCascada } from "@/components/portal/Intro";
 import { Alert } from "@/components/ui/Alert";
 import { Segmented } from "@/components/ui/Segmented";
 import { Skeleton, SkeletonCard, Cargando } from "@/components/ui/Skeleton";
+import { clinicasConAtenciones, SIN_ATENCIONES } from "@/lib/clinicas";
 import { useApi } from "@/lib/useApi";
 import type { AtencionesResponse, TipoAtencion } from "@/lib/types";
 
@@ -33,7 +34,7 @@ export default function AtencionesPage() {
 
   const { data, error, cargando, recargar } = useApi<AtencionesResponse>(query);
   const todas = useApi<AtencionesResponse>("/atenciones");
-  const clinicas = todas.data?.clinicas ?? [];
+  const clinicas = clinicasConAtenciones(todas.data?.atenciones ?? []);
 
   const porAnio = useMemo(() => {
     const grupos = new Map<number, AtencionesResponse["atenciones"]>();
@@ -162,9 +163,7 @@ export default function AtencionesPage() {
             <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-200 p-12 text-center">
               <SearchX className="size-10 text-slate-300" />
               <p className="mt-3 font-medium">No hay atenciones {hayFiltros ? "con esos filtros" : "todavía"}</p>
-              <p className="mt-1 text-sm text-slate-500">{hayFiltros ? "Probá cambiando o limpiando los filtros." : todas.data?.clinicas.length
-                  ? `Tu ficha está vinculada en ${todas.data.clinicas.map((c) => c.nombre).join(" y ")}, pero todavía no tiene atenciones registradas.`
-                  : "Cuando te atiendas en una clínica iMedic, aparecerá acá."}</p>
+              <p className="mt-1 text-sm text-slate-500">{hayFiltros ? "Probá cambiando o limpiando los filtros." : SIN_ATENCIONES}</p>
             </div>
           )
         )}

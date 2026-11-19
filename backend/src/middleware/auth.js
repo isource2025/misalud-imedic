@@ -21,6 +21,7 @@ const requireAuth = asyncHandler(async (req, res, next) => {
 const requireIdentidad = (req, res, next) => {
   if (!req.cuenta?.emailVerificadoEn) return next(forbidden('Verificá tu email para continuar.', 'EMAIL_NO_VERIFICADO'));
   if (!req.cuenta?.identidadVerificadaEn) return next(forbidden('Validá tu identidad para ver tu información clínica.', 'IDENTIDAD_NO_VERIFICADA'));
+  if (!req.cuenta?.telefono) return next(forbidden('Cargá tu teléfono para continuar.', 'TELEFONO_REQUERIDO'));
   next();
 };
 

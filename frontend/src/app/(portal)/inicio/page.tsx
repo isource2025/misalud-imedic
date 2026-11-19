@@ -11,7 +11,8 @@ import { Skeleton, SkeletonCard, Cargando } from "@/components/ui/Skeleton";
 import { fechaLarga, haceCuanto, saludo } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
-import type { AtencionesResponse, ClinicaVinculo } from "@/lib/types";
+import { cantidadAtenciones, clinicasConAtenciones, SIN_ATENCIONES } from "@/lib/clinicas";
+import type { AtencionesResponse } from "@/lib/types";
 
 function Stat({ icon: Icon, label, value, sub }: { icon: typeof Stethoscope; label: string; value: React.ReactNode; sub?: string }) {
   return (
@@ -39,12 +40,10 @@ function StatSkeleton() {
 export default function InicioPage() {
   const { cuenta } = useSession();
   const at = useApi<AtencionesResponse>("/atenciones");
-  const vin = useApi<{ clinicas: ClinicaVinculo[] }>("/vinculos");
 
   const atenciones = at.data?.atenciones ?? [];
-  const clinicasConFicha = at.data?.clinicas ?? [];
   const ultima = atenciones[0];
-  const vinculadas = vin.data?.clinicas.filter((c) => c.estado === "vinculada") ?? [];
+  const clinicas = clinicasConAtenciones(atenciones);
   const conEpicrisis = atenciones.filter((a) => a.secciones.epicrisis).length;
 
   return (
@@ -74,7 +73,7 @@ export default function InicioPage() {
       )}
 
       <motion.section variants={itemCascada} className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        {at.cargando || vin.cargando ? (
+        {at.cargando ? (
           <>
             <StatSkeleton />
             <StatSkeleton />
@@ -84,7 +83,7 @@ export default function InicioPage() {
         ) : (
           <>
             <Stat icon={Stethoscope} label="Atenciones" value={atenciones.length} sub="En todas tus clínicas" />
-            <Stat icon={Building2} label="Clínicas vinculadas" value={vinculadas.length} sub={vinculadas.map((c) => c.nombre).join(" · ")} />
+            <Stat icon={Building2} label="Clínicas donde te atendiste" value={clinicas.length} sub={clinicas.map((c) => c.nombre).join(" · ")} />
             <Stat icon={FileText} label="Epicrisis" value={conEpicrisis} sub="Disponibles para leer" />
             <Stat icon={CalendarDays} label="Última atención" value={ultima ? haceCuanto(ultima.fechaIngreso) : "—"} sub={ultima ? fechaLarga(ultima.fechaIngreso) : undefined} />
           </>
@@ -114,38 +113,32 @@ export default function InicioPage() {
             ))}
           </div>
         ) : (
-          !at.error &&
-          (clinicasConFicha.length ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-slate-500">
-              Tu ficha está vinculada en {clinicasConFicha.map((c) => c.nombre).join(" y ")}, pero todavía no tiene atenciones
-              registradas. Cuando te atiendas, van a aparecer acá.
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-slate-500">
-              Todavía no encontramos fichas con tu DNI.{" "}
-              <Link href="/clinicas" className="font-semibold text-brand-600">
-                Buscar de nuevo
-              </Link>
-            </div>
-          ))
+          !at.error && (
+            <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-slate-500">{SIN_ATENCIONES}</div>
+          )
         )}
       </motion.section>
 
       <motion.section variants={itemCascada}>
-        <h2 className="mb-4 text-xl font-semibold tracking-tight">Tus clínicas</h2>
+        <h2 className="mb-4 text-xl font-semibold tracking-tight">Clínicas donde te atendiste</h2>
         <div className="flex flex-wrap gap-2.5">
-          {vin.cargando
-            ? [0, 1].map((i) => <Skeleton key={i} className="h-12 w-40 rounded-2xl" />)
-            : vin.data?.clinicas.map((c) => (
-                <Link
-                  key={c.id}
-                  href="/clinicas"
-                  className="inline-flex items-center gap-2.5 rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm font-medium shadow-soft transition hover:border-brand-100"
-                >
-                  <span className={`size-2 rounded-full ${c.estado === "vinculada" ? "bg-emerald-500" : c.estado === "pendiente" ? "bg-amber-400" : "bg-slate-300"}`} />
-                  {c.nombre}
-                </Link>
-              ))}
+          {at.cargando ? (
+            [0, 1].map((i) => <Skeleton key={i} className="h-12 w-40 rounded-2xl" />)
+          ) : clinicas.length ? (
+            clinicas.map((c) => (
+              <Link
+                key={c.id}
+                href="/clinicas"
+                className="inline-flex items-center gap-2.5 rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm font-medium shadow-soft transition hover:border-brand-100"
+              >
+                <Building2 className="size-4 text-brand-600" />
+                {c.nombre}
+                <span className="text-slate-400">· {cantidadAtenciones(c.cantidad)}</span>
+              </Link>
+            ))
+          ) : (
+            !at.error && <p className="text-sm text-slate-500">{SIN_ATENCIONES}</p>
+          )}
         </div>
       </motion.section>
     </Cascada>
