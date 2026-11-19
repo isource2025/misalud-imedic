@@ -29,7 +29,8 @@ function render(plantilla, datos) {
     ...datos,
     anio: new Date().getFullYear(),
     portalUrl: config.FRONTEND_URL,
-    marca: config.MAIL_DISPLAY_NAME
+    marca: config.MAIL_DISPLAY_NAME,
+    asunto: SUBJECTS[plantilla]
   };
   const body = fill(load(`${plantilla}.html`), vars, true);
   const html = fill(load('_layout.html'), vars, true).replace('%%CONTENIDO%%', body);

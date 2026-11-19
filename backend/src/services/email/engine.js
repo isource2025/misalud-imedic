@@ -107,13 +107,15 @@ async function send({ to, subject, html, text }) {
       process.stdout.write(`\n[EMAIL mock] para=${to} | asunto="${subject}"\n${text}\n\n`);
       return { id: 'console' };
     }
-    const from = `${config.MAIL_DISPLAY_NAME} <${fromAddress()}>`;
+    const from = fromAddress().includes('<') ? fromAddress() : `${config.MAIL_DISPLAY_NAME} <${fromAddress()}>`;
+    // Sin este header Gmail adivina el idioma por el contenido (corto) y suele ofrecer traducir del inglés.
+    const headers = { 'Content-Language': 'es-AR' };
     if (transportMode === 'resend') {
-      const { data, error } = await resendClient.emails.send({ from, to, subject, html, text });
+      const { data, error } = await resendClient.emails.send({ from, to, subject, html, text, headers });
       if (error) throw Object.assign(new Error(error.message || 'Error Resend'), { response: { data: error }, statusCode: error.statusCode });
       return { id: data?.id };
     }
-    const info = await smtpTransporter.sendMail({ from, to, subject, html, text });
+    const info = await smtpTransporter.sendMail({ from, to, subject, html, text, headers });
     return { id: info.messageId };
   } catch (err) {
     const classified = classifySendError(err);
