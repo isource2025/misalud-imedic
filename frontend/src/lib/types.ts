@@ -1,0 +1,82 @@
+export type Cuenta = {
+  dni: string;
+  nombreCompleto: string;
+  nombre: string;
+  sexo: "M" | "F" | "X";
+  email: string;
+  telefono: string | null;
+  fechaNacimiento: string | null;
+  emailVerificado: boolean;
+  identidadVerificada: boolean;
+  metodoIdentidad: string | null;
+  creadoEn: string;
+};
+
+export type TipoAtencion = "ambulatorio" | "internacion" | "hospital_dia" | "otro";
+
+export type Diagnostico = { codigo: string | null; descripcion: string | null };
+
+export type Atencion = {
+  id: string;
+  clinica: { id: number; nombre: string };
+  centro: string | null;
+  tipo: TipoAtencion;
+  tipoLabel: string;
+  fechaIngreso: string;
+  horaIngreso: string | null;
+  fechaEgreso: string | null;
+  servicio: string | null;
+  diagnostico: Diagnostico | null;
+  secciones: { hcIngreso: boolean; epicrisis: boolean };
+};
+
+export type HcIngreso = {
+  fecha: string;
+  hora: string | null;
+  motivoConsulta: string | null;
+  enfermedadActual: string | null;
+  profesional: string | null;
+  sector: string | null;
+};
+
+export type Epicrisis = {
+  fecha: string;
+  hora: string | null;
+  texto: string | null;
+  diagnostico: Diagnostico | null;
+  profesional: string | null;
+  sector: string | null;
+};
+
+export type AtencionDetalle = Atencion & {
+  profesional: string | null;
+  diagnosticoEgreso: Diagnostico | null;
+  hcIngreso: HcIngreso[];
+  epicrisis: Epicrisis[];
+};
+
+export type ClinicaRef = { id: number; nombre: string };
+
+export type AtencionesResponse = {
+  atenciones: Atencion[];
+  clinicas: ClinicaRef[];
+  clinicasNoDisponibles: ClinicaRef[];
+};
+
+export type ClinicaVinculo = {
+  id: number;
+  nombre: string;
+  estado: "vinculada" | "pendiente" | "sin_registros";
+  fichasConfirmadas: number;
+  fichasPendientes: number;
+  verificadoEn: string | null;
+};
+
+export type BusquedaClinica = {
+  id: number;
+  nombre: string;
+  disponible: boolean;
+  confirmado?: number;
+  pendiente?: number;
+  descartado?: number;
+};

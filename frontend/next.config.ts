@@ -1,0 +1,52 @@
+import type { NextConfig } from "next";
+
+const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:5010").replace(/\/$/, "");
+const isDev = process.env.NODE_ENV !== "production";
+
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  `connect-src 'self'${isDev ? " ws:" : ""}`,
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  partialPrefetching: true,
+  poweredByHeader: false,
+  devIndicators: false,
+  turbopack: {
+    rules: {
+      "*.css": {
+        loaders: ["@tailwindcss/turbopack"],
+        as: "*.css",
+      },
+    },
+  },
+  // El navegador solo habla con este origen: /api se reenvía al BFF (Railway), así las cookies de sesión
+  // son first-party y pueden ser SameSite=Strict.
+  async rewrites() {
+    return [{ source: "/api/:path*", destination: `${BACKEND_URL}/api/:path*` }];
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: csp },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
+  },
+};
+
+export default nextConfig;

@@ -33,7 +33,13 @@ const schema = z.object({
   PORTAL_DB_TRUST_CERT: bool(false),
 
   EMPRESAS_SOURCE: z.enum(['portal', 'imedic']).default('portal'),
-  IMEDIC_CATALOG_URL: z.string().optional(),
+  CATALOGO_DB_HOST: z.string().optional(),
+  CATALOGO_DB_PORT: z.coerce.number().int().default(3306),
+  CATALOGO_DB_NAME: z.string().optional(),
+  CATALOGO_DB_USER: z.string().default('misalud_catalogo_ro'),
+  CATALOGO_DB_PASSWORD: z.string().optional(),
+  CATALOGO_DB_SSL: bool(false),
+  CLINICA_DB_USER_DEFAULT: z.string().default('misalud_portal_ro'),
   CLINICA_TIMEOUT_MS: z.coerce.number().int().default(8000),
   CLINICA_CACHE_SEG: z.coerce.number().int().default(180),
 
@@ -79,8 +85,9 @@ function loadConfig(env = process.env) {
     if (faltantes.length) {
       throw new Error(`Faltan variables de la base del portal: ${faltantes.join(', ')} (o usá MOCK_MODE=true)`);
     }
-    if (c.EMPRESAS_SOURCE === 'imedic' && !c.IMEDIC_CATALOG_URL) {
-      throw new Error('EMPRESAS_SOURCE=imedic requiere IMEDIC_CATALOG_URL');
+    if (c.EMPRESAS_SOURCE === 'imedic') {
+      const faltan = ['CATALOGO_DB_HOST', 'CATALOGO_DB_NAME', 'CATALOGO_DB_PASSWORD'].filter((k) => !c[k]);
+      if (faltan.length) throw new Error(`EMPRESAS_SOURCE=imedic requiere ${faltan.join(', ')}`);
     }
   }
 

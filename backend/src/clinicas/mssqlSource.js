@@ -1,27 +1,39 @@
-// Lectura directa del SQL Server de cada clínica con un usuario de SOLO LECTURA (decisión D3 del plan).
-// Las consultas reimplementan, acotadas, las de iMedic SaaS (admissionSearch, hcIngreso y epicrisis services).
-// Credenciales por variables de entorno: CLINICA_<IdEmpresa>_DB_SERVER / _PORT / _NAME / _USER / _PASSWORD
-// (+ opcionales _INSTANCE, _ENCRYPT, _TRUST_CERT).
+// Lectura directa del SQL Server de cada clínica con el login de SOLO LECTURA misalud_portal_ro (script S4 de
+// iMedic SaaS: rol misalud_lectura, SELECT sobre una lista cerrada de tablas). Las consultas reimplementan,
+// acotadas, las de iMedic SaaS (admissionSearch, hcIngreso y epicrisis services).
+// Ubicación: catálogo vw_MiSaludEmpresas (DbServer/DbPort/DbInstance/DbName) o CLINICA_<ID>_DB_SERVER/_PORT/
+// _INSTANCE/_NAME, que lo pisan. Credenciales SOLO por entorno: CLINICA_<ID>_DB_PASSWORD (+ _USER, default
+// misalud_portal_ro; opcionales _ENCRYPT, _TRUST_CERT).
+// Las tablas que el rol no puede leer (imPassword, imPersonal, imSectores; imHCI hasta que S4 la incluya) se
+// detectan con HAS_PERMS_BY_NAME y se omiten en vez de romper la consulta.
 const sql = require('mssql');
+const { config } = require('../config');
 const logger = require('../lib/logger');
 const { toIsoDate } = require('../lib/clarion');
 const { normalizeDni, normalizeSexo } = require('../lib/text');
+const { obtenerHabilitada } = require('./empresas');
 
 const pools = new Map();
 const columnCache = new Map();
+const permisoCache = new Map();
 
-function connectionConfig(idEmpresa) {
+async function connectionConfig(idEmpresa) {
   const p = (k) => process.env[`CLINICA_${idEmpresa}_DB_${k}`];
-  if (!p('SERVER') || !p('USER') || !p('PASSWORD') || !p('NAME')) {
-    const err = new Error(`Sin credenciales SQL para la clínica ${idEmpresa}`);
+  const db = (await obtenerHabilitada(idEmpresa))?.db || {};
+  const server = p('SERVER') || db.server;
+  const database = p('NAME') || db.database;
+  if (!server || !database || !p('PASSWORD')) {
+    const err = new Error(`Sin ubicación o credenciales SQL para la clínica ${idEmpresa}`);
     err.code = 'CLINICA_SIN_CREDENCIALES';
     throw err;
   }
+  const instanceName = p('INSTANCE') || db.instance || undefined;
+  const port = Number(p('PORT') || db.port) || undefined;
   return {
-    server: p('SERVER'),
-    port: Number(p('PORT') || 1433),
-    database: p('NAME'),
-    user: p('USER'),
+    server,
+    port: instanceName && !port ? undefined : port || 1433,
+    database,
+    user: p('USER') || config.CLINICA_DB_USER_DEFAULT,
     password: p('PASSWORD'),
     connectionTimeout: 7000,
     requestTimeout: 8000,
@@ -29,7 +41,7 @@ function connectionConfig(idEmpresa) {
     options: {
       encrypt: /^(1|true)$/i.test(p('ENCRYPT') || 'false'),
       trustServerCertificate: /^(1|true)$/i.test(p('TRUST_CERT') || 'true'),
-      instanceName: p('INSTANCE') || undefined,
+      instanceName,
       readOnlyIntent: true
     }
   };
@@ -37,15 +49,33 @@ function connectionConfig(idEmpresa) {
 
 function getPool(idEmpresa) {
   if (!pools.has(idEmpresa)) {
-    const pool = new sql.ConnectionPool(connectionConfig(idEmpresa));
-    pool.on('error', (err) => logger.warn('clinica_pool_error', { idEmpresa, code: err.code }));
-    const promise = pool.connect().catch((err) => {
-      pools.delete(idEmpresa);
-      throw err;
-    });
+    const promise = connectionConfig(idEmpresa)
+      .then((cfg) => {
+        const pool = new sql.ConnectionPool(cfg);
+        pool.on('error', (err) => logger.warn('clinica_pool_error', { idEmpresa, code: err.code }));
+        return pool.connect();
+      })
+      .catch((err) => {
+        pools.delete(idEmpresa);
+        throw err;
+      });
     pools.set(idEmpresa, promise);
   }
   return pools.get(idEmpresa);
+}
+
+async function puedeLeer(idEmpresa, tabla) {
+  const key = `${idEmpresa}:${tabla}`;
+  if (permisoCache.has(key)) return permisoCache.get(key);
+  const pool = await getPool(idEmpresa);
+  const r = await pool
+    .request()
+    .input('o', sql.NVarChar(256), `dbo.${tabla}`)
+    .query(`SELECT ISNULL(HAS_PERMS_BY_NAME(@o, 'OBJECT', 'SELECT'), 0) AS ok`);
+  const ok = Number(r.recordset[0]?.ok) === 1;
+  if (!ok) logger.warn('clinica_tabla_sin_permiso', { idEmpresa, tabla });
+  permisoCache.set(key, ok);
+  return ok;
 }
 
 async function tieneColumna(idEmpresa, tabla, columna) {
@@ -99,7 +129,7 @@ async function buscarPacientesPorDni(idEmpresa, dni) {
 }
 
 async function selectVisita(idEmpresa) {
-  const conSucursal = await tieneColumna(idEmpresa, 'imVisita', 'IdSucursal');
+  const conSucursal = (await tieneColumna(idEmpresa, 'imVisita', 'IdSucursal')) && (await puedeLeer(idEmpresa, 'Sucursales'));
   return {
     centroSelect: conSucursal
       ? `LTRIM(RTRIM(ISNULL(suc.Descripcion, ''))) AS Centro`
@@ -146,11 +176,12 @@ async function listarAtenciones(idEmpresa, idsPaciente) {
   if (!idsPaciente.length) return [];
   const pool = await getPool(idEmpresa);
   const s = await selectVisita(idEmpresa);
+  const conHci = await puedeLeer(idEmpresa, 'imHCI');
   const request = pool.request();
   const ids = inList(request, idsPaciente);
   const r = await request.query(`
     SELECT TOP 300 ${s.base}, ${s.centroSelect},
-      CASE WHEN EXISTS (SELECT 1 FROM dbo.imHCI h WHERE h.NumeroVisita = v.NUMEROVISITA) THEN 1 ELSE 0 END AS TieneHci,
+      ${conHci ? 'CASE WHEN EXISTS (SELECT 1 FROM dbo.imHCI h WHERE h.NumeroVisita = v.NUMEROVISITA) THEN 1 ELSE 0 END' : '0'} AS TieneHci,
       CASE WHEN EXISTS (SELECT 1 FROM dbo.imHCEpicrisis e WHERE e.IdVisita = v.NUMEROVISITA) THEN 1 ELSE 0 END AS TieneEpicrisis
     FROM dbo.imVisita v
     ${s.joins}
@@ -184,18 +215,25 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
   const row = visita.recordset[0];
   if (!row) return null;
 
+  const [conHci, conPassword, conPersonal, conSectores] = await Promise.all(
+    ['imHCI', 'imPassword', 'imPersonal', 'imSectores'].map((t) => puedeLeer(idEmpresa, t))
+  );
+  const sectorSelect = () =>
+    conSectores ? `LTRIM(RTRIM(ISNULL(sec.Descripcion, ''))) AS Sector` : `CAST('' AS VARCHAR(200)) AS Sector`;
+  const sectorJoin = (alias) => (conSectores ? `LEFT JOIN dbo.imSectores sec ON ${alias}.IdSector = sec.Valor` : '');
+
   const [hci, epi] = await Promise.all([
-    pool.request().input('nv', sql.Int, numeroVisita).query(`
+    !conHci ? { recordset: [] } : pool.request().input('nv', sql.Int, numeroVisita).query(`
       SELECT TOP 20
         CONVERT(VARCHAR(10), hc.Fecha, 23) AS Fecha,
         SUBSTRING(CONVERT(VARCHAR(8), hc.Fecha, 108), 1, 5) AS Hora,
         CAST(hc.MotivoConsulta AS NVARCHAR(MAX)) AS MotivoConsulta,
         CAST(hc.EnfermedadActual AS NVARCHAR(MAX)) AS EnfermedadActual,
-        LTRIM(RTRIM(ISNULL(sec.Descripcion, ''))) AS Sector,
-        LTRIM(RTRIM(ISNULL(pw.Apellido, '') + ' ' + ISNULL(pw.Nombres, ''))) AS Profesional
+        ${sectorSelect()},
+        ${conPassword ? `LTRIM(RTRIM(ISNULL(pw.Apellido, '') + ' ' + ISNULL(pw.Nombres, '')))` : `CAST('' AS VARCHAR(200))`} AS Profesional
       FROM dbo.imHCI hc
-      LEFT JOIN dbo.imPassword pw ON pw.CodOperador = hc.IdProfecional
-      LEFT JOIN dbo.imSectores sec ON hc.IdSector = sec.Valor
+      ${conPassword ? 'LEFT JOIN dbo.imPassword pw ON pw.CodOperador = hc.IdProfecional' : ''}
+      ${sectorJoin('hc')}
       WHERE hc.NumeroVisita = @nv
       ORDER BY hc.Fecha DESC`),
     pool.request().input('nv', sql.Int, numeroVisita).query(`
@@ -206,11 +244,11 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
         RTRIM(LTRIM(ISNULL(ep.Diagnostico, ''))) AS Diagnostico,
         ep.DiagnosticoText,
         dx.Descripcion AS DiagnosticoDescripcion,
-        LTRIM(RTRIM(ISNULL(per.ApellidoNombre, ''))) AS Profesional,
-        LTRIM(RTRIM(ISNULL(sec.Descripcion, ''))) AS Sector
+        ${conPersonal ? `LTRIM(RTRIM(ISNULL(per.ApellidoNombre, '')))` : `CAST('' AS VARCHAR(200))`} AS Profesional,
+        ${sectorSelect()}
       FROM dbo.imHCEpicrisis ep
-      LEFT JOIN dbo.imPersonal per ON per.Valor = ep.Profecional
-      LEFT JOIN dbo.imSectores sec ON ep.IdSector = sec.Valor
+      ${conPersonal ? 'LEFT JOIN dbo.imPersonal per ON per.Valor = ep.Profecional' : ''}
+      ${sectorJoin('ep')}
       OUTER APPLY (
         SELECT TOP 1 LTRIM(RTRIM(d0.Descripcion)) AS Descripcion FROM dbo.imDiagnosticos d0
         WHERE LTRIM(RTRIM(ISNULL(ep.Diagnostico, ''))) <> ''
