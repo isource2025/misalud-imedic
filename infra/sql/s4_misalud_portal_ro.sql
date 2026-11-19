@@ -8,7 +8,8 @@
     3. Da SELECT solo sobre las tablas que lee el portal (las que no existen en
        esta base se saltean) y EXECUTE sobre las funciones de fecha Clarion.
        De imPersonal e imPassword solo las columnas de nombre (médico de la visita
-       y profesional de la HC, como el encabezado de iMedic): GRANT por columna.
+       y profesional de la HC, como el encabezado de iMedic) y la especialidad
+       del médico: GRANT por columna.
     4. Niega INSERT/UPDATE/DELETE/ALTER sobre el esquema dbo.
   No usa db_datareader: el portal NO ve facturación, enfermería, insumos, ni
   contraseñas o datos personales del personal.
@@ -60,7 +61,7 @@ END;
 DECLARE @tablas nvarchar(max) = N'
 	imPacientes,imSexo,imClientes,
 	imVisita,imServiciosMedicos,imDiagnosticos,Sucursales,imCentroAsistencial,
-	imHCI,imHCEpicrisis,imSectores,imInterCtrlFrecuente,
+	imHCI,imHCEpicrisis,imSectores,imEspecialidad,imInterCtrlFrecuente,
 	imPedidosEstudiosAdjuntos,hctiposimagenes';
 DECLARE @tablasFase2 nvarchar(max) = N'
 	imHCEvolucion,
@@ -143,7 +144,7 @@ CLOSE c; DEALLOCATE c;
 -- Personal y operadores: solo columnas de nombre. Nunca la tabla entera (contraseñas, datos personales).
 DECLARE @cols TABLE (t sysname NOT NULL, col sysname NOT NULL);
 INSERT INTO @cols (t, col) VALUES
-	(N''imPersonal'', N''Valor''), (N''imPersonal'', N''ApellidoNombre''),
+	(N''imPersonal'', N''Valor''), (N''imPersonal'', N''ApellidoNombre''), (N''imPersonal'', N''ValorEspecialidad''),
 	(N''imPassword'', N''CodOperador''), (N''imPassword'', N''Apellido''), (N''imPassword'', N''Nombres''), (N''imPassword'', N''ValorPersonal'');
 DECLARE @col sysname;
 DECLARE cc CURSOR LOCAL FAST_FORWARD FOR SELECT t, col FROM @cols;

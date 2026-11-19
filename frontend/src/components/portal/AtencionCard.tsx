@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import Link from "next/link";
-import { BedDouble, CalendarClock, ChevronRight, FileText, Paperclip, Stethoscope, Sun } from "lucide-react";
+import { BedDouble, CalendarClock, ChevronRight, FileText, Paperclip, Stethoscope, Sun, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { diaMes, duracionDias } from "@/lib/format";
 import type { Atencion, TipoAtencion } from "@/lib/types";
@@ -42,8 +42,18 @@ export function AtencionCard({ a, compacta }: { a: Atencion; compacta?: boolean 
         </div>
         <p className="mt-1 truncate text-sm text-slate-500">
           {a.clinica.nombre}
-          {a.centro ? ` · ${a.centro}` : ""}
+          {a.centro && a.centro !== a.especialidad ? ` · ${a.centro}` : ""}
         </p>
+        {(a.profesional || a.especialidad) && (
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm text-slate-600">
+            <UserRound className="size-3.5 shrink-0 text-slate-400" aria-hidden />
+            <span className="truncate">
+              {a.profesional && <span className="font-medium text-slate-700">{a.profesional}</span>}
+              {a.profesional && a.especialidad ? " · " : ""}
+              {a.especialidad}
+            </span>
+          </p>
+        )}
         {!compacta && a.diagnostico?.descripcion && <p className="mt-1.5 line-clamp-1 text-sm text-slate-700">{a.diagnostico.descripcion}</p>}
         {!compacta && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">

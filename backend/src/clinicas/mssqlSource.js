@@ -102,6 +102,8 @@ async function puedeLeerColumnas(idEmpresa, tabla, columnas) {
 
 const leerPersonal = (idEmpresa) => puedeLeerColumnas(idEmpresa, 'imPersonal', ['Valor', 'ApellidoNombre']);
 const leerPassword = (idEmpresa) => puedeLeerColumnas(idEmpresa, 'imPassword', ['CodOperador', 'Apellido', 'Nombres', 'ValorPersonal']);
+const leerEspecialidad = async (idEmpresa) =>
+  (await puedeLeerColumnas(idEmpresa, 'imPersonal', ['ValorEspecialidad'])) && puedeLeer(idEmpresa, 'imEspecialidad');
 
 async function tieneColumna(idEmpresa, tabla, columna) {
   const key = `${idEmpresa}:${tabla}.${columna}`;
@@ -155,32 +157,45 @@ async function buscarPacientesPorDni(idEmpresa, dni) {
 
 // Médico y sector como el encabezado de visita de iMedic (admissionSearch): DOCTORASISTIENDO, si no DOCTORCONSULTOR,
 // contra imPersonal; sector por VALORSECTOR contra imSectores. Hay bases sin IdSucursal en imVisita (Vidal): ahí el
-// "centro" es el sector de la visita.
+// "centro" es el sector de la visita. La especialidad es la del médico elegido (imPersonal.ValorEspecialidad contra
+// imEspecialidad, como iMedic); si no hay, la lista muestra el sector.
 async function selectVisita(idEmpresa) {
-  const [conIdSucursal, conSucursales, conSectorCol, conSectores, conAsis, conCons, conPersonal] = await Promise.all([
+  const [conIdSucursal, conSucursales, conSectorCol, conSectores, conAsis, conCons, conPersonal, conEspecialidad] = await Promise.all([
     tieneColumna(idEmpresa, 'imVisita', 'IdSucursal'),
     puedeLeer(idEmpresa, 'Sucursales'),
     tieneColumna(idEmpresa, 'imVisita', 'VALORSECTOR'),
     puedeLeer(idEmpresa, 'imSectores'),
     tieneColumna(idEmpresa, 'imVisita', 'DOCTORASISTIENDO'),
     tieneColumna(idEmpresa, 'imVisita', 'DOCTORCONSULTOR'),
-    leerPersonal(idEmpresa)
+    leerPersonal(idEmpresa),
+    leerEspecialidad(idEmpresa)
   ]);
   const conSucursal = conIdSucursal && conSucursales;
   const conSector = conSectorCol && conSectores;
   const sectorExpr = conSector ? `NULLIF(LTRIM(RTRIM(ISNULL(vsec.Descripcion, ''))), '')` : 'NULL';
   const sucursalExpr = conSucursal ? `NULLIF(LTRIM(RTRIM(ISNULL(suc.Descripcion, ''))), '')` : 'NULL';
   const medicos = [conAsis && conPersonal && 'dAsis', conCons && conPersonal && 'dCons'].filter(Boolean);
+  const nombre = (a) => `NULLIF(LTRIM(RTRIM(ISNULL(${a}.ApellidoNombre, ''))), '')`;
+  const conEsp = conEspecialidad && medicos.length > 0;
+  const espCol = conEsp ? ', p0.ValorEspecialidad' : '';
+  // Especialidad del mismo médico que se muestra: el primero de la lista con nombre.
+  const valorEsp = conEsp
+    ? medicos.length === 1
+      ? `${medicos[0]}.ValorEspecialidad`
+      : `CASE WHEN ${nombre(medicos[0])} IS NOT NULL THEN ${medicos[0]}.ValorEspecialidad ELSE ${medicos[1]}.ValorEspecialidad END`
+    : null;
   return {
     centroSelect: `
       ISNULL(COALESCE(${sucursalExpr}, ${sectorExpr}), '') AS Centro,
       ISNULL(${sectorExpr}, '') AS SectorVisita,
-      ${medicos.length ? `ISNULL(COALESCE(${medicos.map((a) => `NULLIF(LTRIM(RTRIM(ISNULL(${a}.ApellidoNombre, ''))), '')`).join(', ')}), '')` : `''`} AS Medico`,
+      ${medicos.length ? `ISNULL(COALESCE(${medicos.map(nombre).join(', ')}), '')` : `''`} AS Medico,
+      ${conEsp ? `ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(mesp.Descripcion, ''))), ''), '')` : `''`} AS Especialidad`,
     centroJoin: [
       conSucursal && 'LEFT JOIN dbo.Sucursales suc ON v.IdSucursal = suc.IdSucursal',
       conSector && `OUTER APPLY (SELECT TOP 1 s1.Descripcion FROM dbo.imSectores s1 WHERE LTRIM(RTRIM(s1.Valor)) = LTRIM(RTRIM(v.VALORSECTOR))) vsec`,
-      medicos.includes('dAsis') && 'OUTER APPLY (SELECT TOP 1 p1.ApellidoNombre FROM dbo.imPersonal p1 WHERE p1.Valor = v.DOCTORASISTIENDO) dAsis',
-      medicos.includes('dCons') && 'OUTER APPLY (SELECT TOP 1 p2.ApellidoNombre FROM dbo.imPersonal p2 WHERE p2.Valor = v.DOCTORCONSULTOR) dCons'
+      medicos.includes('dAsis') && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORASISTIENDO) dAsis`,
+      medicos.includes('dCons') && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORCONSULTOR) dCons`,
+      conEsp && `OUTER APPLY (SELECT TOP 1 e1.Descripcion FROM dbo.imEspecialidad e1 WHERE ${valorEsp} <> 0 AND e1.Valor = ${valorEsp}) mesp`
     ]
       .filter(Boolean)
       .join('\n    '),
@@ -218,6 +233,7 @@ const mapVisita = (x) => ({
   centro: x.Centro || null,
   sector: x.SectorVisita || null,
   medico: x.Medico || null,
+  especialidad: x.Especialidad || null,
   diagnostico: x.DiagnosticoCodigo ? { codigo: x.DiagnosticoCodigo, descripcion: x.DiagnosticoDescripcion || null } : null,
   tieneHcIngreso: Boolean(x.TieneHci),
   tieneEpicrisis: Boolean(x.TieneEpicrisis),

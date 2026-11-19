@@ -45,7 +45,8 @@ const PLANTILLAS = [
         { titulo: 'Cuello', campos: [{ campo: 'ADENOPATIAS', valor: 'no' }] }
       ]
     },
-    medico: 'FERNANDEZ PAULA'
+    medico: 'FERNANDEZ PAULA',
+    especialidad: 'CLINICA MEDICA'
   },
   {
     empresa: SARMIENTO,
@@ -175,6 +176,7 @@ function sembrarVisitas(idPacientePorEmpresa) {
       servicio: p.servicio,
       centro: p.centro,
       medico: p.medico || null,
+      especialidad: p.especialidad || null,
       diagnostico: p.diagnostico,
       diagnosticoEgreso: p.diagnosticoEgreso || null,
       hcIngreso: p.hcIngreso ? [{ fecha: fechaIngreso, hora: p.hora, ...p.hcIngreso }] : [],

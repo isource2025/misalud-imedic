@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Building2, CalendarDays, ClipboardList, FileText, Hospital, Paperclip, Stethoscope, UserRound } from "lucide-react";
+import { ArrowLeft, Building2, CalendarDays, ClipboardList, FileText, Paperclip, Stethoscope, UserRound } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdjuntosPanel } from "./AdjuntosPanel";
 import { ICONO_TIPO, TONO_TIPO } from "./AtencionCard";
@@ -147,9 +147,8 @@ export function DetalleAtencion({ id }: { id: string }) {
             <p className="mt-1 text-slate-500">{fechaLarga(a.fechaIngreso)}</p>
           </div>
         </div>
-        <div className="relative mt-6 grid grid-cols-2 gap-x-4 gap-y-5 border-t border-slate-100 pt-5 sm:grid-cols-4">
+        <div className="relative mt-6 grid grid-cols-2 gap-x-4 gap-y-5 border-t border-slate-100 pt-5 sm:grid-cols-3">
           <Dato icon={Building2} label="Clínica">{a.clinica.nombre}</Dato>
-          <Dato icon={Hospital} label="Centro">{a.centro}</Dato>
           <Dato icon={CalendarDays} label={a.fechaEgreso ? "Ingreso / egreso" : "Fecha"}>
             {a.fechaEgreso ? `${a.fechaIngreso.slice(8, 10)}/${a.fechaIngreso.slice(5, 7)} – ${a.fechaEgreso.slice(8, 10)}/${a.fechaEgreso.slice(5, 7)}${dias ? ` (${dias} d)` : ""}` : `${a.fechaIngreso.slice(8, 10)}/${a.fechaIngreso.slice(5, 7)}/${a.fechaIngreso.slice(0, 4)}${a.horaIngreso ? ` · ${a.horaIngreso}` : ""}`}
           </Dato>

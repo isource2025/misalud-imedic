@@ -20,6 +20,8 @@ export type Atencion = {
   id: string;
   clinica: { id: number; nombre: string };
   centro: string | null;
+  profesional: string | null;
+  especialidad: string | null;
   tipo: TipoAtencion;
   tipoLabel: string;
   fechaIngreso: string;
@@ -65,7 +67,6 @@ export type Epicrisis = {
 };
 
 export type AtencionDetalle = Atencion & {
-  profesional: string | null;
   diagnosticoEgreso: Diagnostico | null;
   hcIngreso: HcIngreso[];
   epicrisis: Epicrisis[];

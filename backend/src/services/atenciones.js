@@ -22,6 +22,8 @@ function publicar(idCuenta, empresa, v) {
     id: sealId({ c: idCuenta, e: empresa.idEmpresa, v: v.numeroVisita }),
     clinica: { id: empresa.idEmpresa, nombre: empresa.nombre },
     centro: v.centro || null,
+    profesional: v.medico || null,
+    especialidad: v.especialidad || v.sector || null,
     ...tipoDe(v.clase),
     fechaIngreso: v.fechaIngreso,
     horaIngreso: v.horaIngreso || null,
