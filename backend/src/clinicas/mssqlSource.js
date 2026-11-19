@@ -157,45 +157,60 @@ async function buscarPacientesPorDni(idEmpresa, dni) {
 
 // Médico y sector como el encabezado de visita de iMedic (admissionSearch): DOCTORASISTIENDO, si no DOCTORCONSULTOR,
 // contra imPersonal; sector por VALORSECTOR contra imSectores. Hay bases sin IdSucursal en imVisita (Vidal): ahí el
-// "centro" es el sector de la visita. La especialidad es la del médico elegido (imPersonal.ValorEspecialidad contra
-// imEspecialidad, como iMedic); si no hay, la lista muestra el sector.
+// "centro" es el sector de la visita. Si la visita no tiene médico (internaciones), el profesional es el de la HC de
+// ingreso y si no el de la epicrisis, como el encabezado del detalle. La especialidad es la de ese mismo profesional
+// (imPersonal.ValorEspecialidad contra imEspecialidad, como iMedic); si no hay, la lista muestra el sector.
 async function selectVisita(idEmpresa) {
-  const [conIdSucursal, conSucursales, conSectorCol, conSectores, conAsis, conCons, conPersonal, conEspecialidad] = await Promise.all([
-    tieneColumna(idEmpresa, 'imVisita', 'IdSucursal'),
-    puedeLeer(idEmpresa, 'Sucursales'),
-    tieneColumna(idEmpresa, 'imVisita', 'VALORSECTOR'),
-    puedeLeer(idEmpresa, 'imSectores'),
-    tieneColumna(idEmpresa, 'imVisita', 'DOCTORASISTIENDO'),
-    tieneColumna(idEmpresa, 'imVisita', 'DOCTORCONSULTOR'),
-    leerPersonal(idEmpresa),
-    leerEspecialidad(idEmpresa)
-  ]);
+  const [conIdSucursal, conSucursales, conSectorCol, conSectores, conAsis, conCons, conPersonal, conEspecialidad, conHci, conPassword] =
+    await Promise.all([
+      tieneColumna(idEmpresa, 'imVisita', 'IdSucursal'),
+      puedeLeer(idEmpresa, 'Sucursales'),
+      tieneColumna(idEmpresa, 'imVisita', 'VALORSECTOR'),
+      puedeLeer(idEmpresa, 'imSectores'),
+      tieneColumna(idEmpresa, 'imVisita', 'DOCTORASISTIENDO'),
+      tieneColumna(idEmpresa, 'imVisita', 'DOCTORCONSULTOR'),
+      leerPersonal(idEmpresa),
+      leerEspecialidad(idEmpresa),
+      puedeLeer(idEmpresa, 'imHCI'),
+      leerPassword(idEmpresa)
+    ]);
   const conSucursal = conIdSucursal && conSucursales;
   const conSector = conSectorCol && conSectores;
   const sectorExpr = conSector ? `NULLIF(LTRIM(RTRIM(ISNULL(vsec.Descripcion, ''))), '')` : 'NULL';
   const sucursalExpr = conSucursal ? `NULLIF(LTRIM(RTRIM(ISNULL(suc.Descripcion, ''))), '')` : 'NULL';
-  const medicos = [conAsis && conPersonal && 'dAsis', conCons && conPersonal && 'dCons'].filter(Boolean);
+  const espCol = conEspecialidad ? ', p0.ValorEspecialidad' : '';
   const nombre = (a) => `NULLIF(LTRIM(RTRIM(ISNULL(${a}.ApellidoNombre, ''))), '')`;
-  const conEsp = conEspecialidad && medicos.length > 0;
-  const espCol = conEsp ? ', p0.ValorEspecialidad' : '';
-  // Especialidad del mismo médico que se muestra: el primero de la lista con nombre.
-  const valorEsp = conEsp
-    ? medicos.length === 1
-      ? `${medicos[0]}.ValorEspecialidad`
-      : `CASE WHEN ${nombre(medicos[0])} IS NOT NULL THEN ${medicos[0]}.ValorEspecialidad ELSE ${medicos[1]}.ValorEspecialidad END`
-    : null;
+  const esp = (a) => (conEspecialidad ? `${a}.ValorEspecialidad` : 'NULL');
+  const conHcProf = conHci && (conPassword || conPersonal);
+
+  // En orden de prioridad: [expresión del nombre, expresión de ValorEspecialidad].
+  const fuentes = [
+    conAsis && conPersonal && [nombre('dAsis'), esp('dAsis')],
+    conCons && conPersonal && [nombre('dCons'), esp('dCons')],
+    conHcProf && conPassword && [`NULLIF(LTRIM(RTRIM(ISNULL(hpw.Apellido, '') + ' ' + ISNULL(hpw.Nombres, ''))), '')`, conPersonal ? esp('hper') : 'NULL'],
+    conHcProf && conPersonal && [nombre('hper'), esp('hper')],
+    conPersonal && [nombre('eper'), esp('eper')]
+  ].filter(Boolean);
+  const conEsp = conEspecialidad && fuentes.length > 0;
+  const valorEsp = `CASE ${fuentes.map(([n, e]) => `WHEN ${n} IS NOT NULL THEN ${e}`).join(' ')} END`;
   return {
     centroSelect: `
       ISNULL(COALESCE(${sucursalExpr}, ${sectorExpr}), '') AS Centro,
       ISNULL(${sectorExpr}, '') AS SectorVisita,
-      ${medicos.length ? `ISNULL(COALESCE(${medicos.map(nombre).join(', ')}), '')` : `''`} AS Medico,
+      ${fuentes.length ? `ISNULL(COALESCE(${fuentes.map(([n]) => n).join(', ')}), '')` : `''`} AS Medico,
       ${conEsp ? `ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(mesp.Descripcion, ''))), ''), '')` : `''`} AS Especialidad`,
     centroJoin: [
       conSucursal && 'LEFT JOIN dbo.Sucursales suc ON v.IdSucursal = suc.IdSucursal',
       conSector && `OUTER APPLY (SELECT TOP 1 s1.Descripcion FROM dbo.imSectores s1 WHERE LTRIM(RTRIM(s1.Valor)) = LTRIM(RTRIM(v.VALORSECTOR))) vsec`,
-      medicos.includes('dAsis') && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORASISTIENDO) dAsis`,
-      medicos.includes('dCons') && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORCONSULTOR) dCons`,
-      conEsp && `OUTER APPLY (SELECT TOP 1 e1.Descripcion FROM dbo.imEspecialidad e1 WHERE ${valorEsp} <> 0 AND e1.Valor = ${valorEsp}) mesp`
+      conAsis && conPersonal && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORASISTIENDO) dAsis`,
+      conCons && conPersonal && `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = v.DOCTORCONSULTOR) dCons`,
+      conHcProf && `OUTER APPLY (SELECT TOP 1 h1.IdProfecional FROM dbo.imHCI h1 WHERE h1.NumeroVisita = v.NUMEROVISITA AND h1.IdProfecional IS NOT NULL ORDER BY h1.Fecha DESC) hcp`,
+      conHcProf && conPassword && 'OUTER APPLY (SELECT TOP 1 pw1.Apellido, pw1.Nombres, pw1.ValorPersonal FROM dbo.imPassword pw1 WHERE pw1.CodOperador = hcp.IdProfecional) hpw',
+      conHcProf && conPersonal &&
+        `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imPersonal p0 WHERE p0.Valor = ${conPassword ? 'COALESCE(hpw.ValorPersonal, hcp.IdProfecional)' : 'hcp.IdProfecional'}) hper`,
+      conPersonal &&
+        `OUTER APPLY (SELECT TOP 1 p0.ApellidoNombre${espCol} FROM dbo.imHCEpicrisis ep1 JOIN dbo.imPersonal p0 ON p0.Valor = ep1.Profecional WHERE ep1.IdVisita = v.NUMEROVISITA ORDER BY ep1.Fecha DESC, ep1.Hora DESC) eper`,
+      conEsp && `OUTER APPLY (SELECT TOP 1 e1.Descripcion FROM dbo.imEspecialidad e1 WHERE e1.Valor <> 0 AND e1.Valor = ${valorEsp}) mesp`
     ]
       .filter(Boolean)
       .join('\n    '),
