@@ -162,7 +162,9 @@ export default function AtencionesPage() {
             <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-200 p-12 text-center">
               <SearchX className="size-10 text-slate-300" />
               <p className="mt-3 font-medium">No hay atenciones {hayFiltros ? "con esos filtros" : "todavía"}</p>
-              <p className="mt-1 text-sm text-slate-500">{hayFiltros ? "Probá cambiando o limpiando los filtros." : "Cuando te atiendas en una clínica iMedic, aparecerá acá."}</p>
+              <p className="mt-1 text-sm text-slate-500">{hayFiltros ? "Probá cambiando o limpiando los filtros." : todas.data?.clinicas.length
+                  ? `Tu ficha está vinculada en ${todas.data.clinicas.map((c) => c.nombre).join(" y ")}, pero todavía no tiene atenciones registradas.`
+                  : "Cuando te atiendas en una clínica iMedic, aparecerá acá."}</p>
             </div>
           )
         )}

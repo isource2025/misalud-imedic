@@ -42,6 +42,7 @@ export default function InicioPage() {
   const vin = useApi<{ clinicas: ClinicaVinculo[] }>("/vinculos");
 
   const atenciones = at.data?.atenciones ?? [];
+  const clinicasConFicha = at.data?.clinicas ?? [];
   const ultima = atenciones[0];
   const vinculadas = vin.data?.clinicas.filter((c) => c.estado === "vinculada") ?? [];
   const conEpicrisis = atenciones.filter((a) => a.secciones.epicrisis).length;
@@ -113,14 +114,20 @@ export default function InicioPage() {
             ))}
           </div>
         ) : (
-          !at.error && (
+          !at.error &&
+          (clinicasConFicha.length ? (
             <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-slate-500">
-              Todavía no encontramos atenciones con tu DNI.{" "}
+              Tu ficha está vinculada en {clinicasConFicha.map((c) => c.nombre).join(" y ")}, pero todavía no tiene atenciones
+              registradas. Cuando te atiendas, van a aparecer acá.
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-slate-500">
+              Todavía no encontramos fichas con tu DNI.{" "}
               <Link href="/clinicas" className="font-semibold text-brand-600">
                 Buscar de nuevo
               </Link>
             </div>
-          )
+          ))
         )}
       </motion.section>
 

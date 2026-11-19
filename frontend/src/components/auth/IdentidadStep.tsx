@@ -126,8 +126,8 @@ export function IdentidadStep({ dni, onListo }: { dni: string; onListo: () => vo
           <h1 className="text-center text-[28px] font-semibold tracking-tight">¡Listo, sos vos!</h1>
           <p className="mt-2 text-center text-slate-500">
             {vinculadas.length
-              ? `Encontramos tus atenciones en ${vinculadas.length} ${vinculadas.length === 1 ? "clínica" : "clínicas"}.`
-              : "Validamos tu identidad. Todavía no encontramos atenciones con tu DNI."}
+              ? `Encontramos tu ficha de paciente en ${vinculadas.length} ${vinculadas.length === 1 ? "clínica" : "clínicas"}.`
+              : "Validamos tu identidad. Todavía no encontramos fichas con tu DNI en las clínicas del portal."}
           </p>
           <ul className="mt-8 space-y-2.5">
             {clinicas.map((c, i) => (

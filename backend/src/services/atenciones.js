@@ -45,7 +45,8 @@ async function listar(cuenta, filtros = {}) {
       const cached = cache.get(cuenta.id, empresa.idEmpresa);
       if (cached) return cached;
       const filas = await conTimeout(source.listarAtenciones(empresa.idEmpresa, vinculos.get(empresa.idEmpresa)));
-      cache.set(cuenta.id, empresa.idEmpresa, filas);
+      // Un vacío no se cachea: puede ser una atención recién cargada en la clínica y no cuesta reconsultar.
+      if (filas.length) cache.set(cuenta.id, empresa.idEmpresa, filas);
       return filas;
     })
   );

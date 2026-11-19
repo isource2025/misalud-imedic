@@ -253,7 +253,7 @@ module.exports = {
   },
   asegurarPaciente,
   EMPRESAS_MOCK: [
-    { idEmpresa: GUEMES, habilitada: true, nombreVisible: 'Güemes', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 },
-    { idEmpresa: SARMIENTO, habilitada: true, nombreVisible: 'Sarmiento', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 }
+    { idEmpresa: GUEMES, habilitada: true, nombreVisible: 'Sanatorio Güemes', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 },
+    { idEmpresa: SARMIENTO, habilitada: true, nombreVisible: 'Sanatorio Sarmiento', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 }
   ]
 };

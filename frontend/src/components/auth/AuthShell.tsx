@@ -6,8 +6,8 @@ import type { ReactNode } from "react";
 import { Logo } from "@/components/ui/Logo";
 
 const tarjetas = [
-  { icon: Stethoscope, titulo: "Clínica médica", sub: "Güemes · Ambulatorio", tono: "bg-brand-50 text-brand-600" },
-  { icon: FileHeart, titulo: "Epicrisis disponible", sub: "Sarmiento · Internación", tono: "bg-emerald-50 text-emerald-600" },
+  { icon: Stethoscope, titulo: "Clínica médica", sub: "Sanatorio Güemes · Ambulatorio", tono: "bg-brand-50 text-brand-600" },
+  { icon: FileHeart, titulo: "Epicrisis disponible", sub: "Sanatorio Sarmiento · Internación", tono: "bg-emerald-50 text-emerald-600" },
   { icon: Building2, titulo: "2 clínicas vinculadas", sub: "Con tu DNI", tono: "bg-sky-50 text-sky-600" },
 ];
 
