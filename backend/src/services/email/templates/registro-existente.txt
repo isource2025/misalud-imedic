@@ -1,0 +1,5 @@
+Hola, {{nombre}}
+
+Alguien intentó crear una cuenta nueva en MiSalud con tu DNI. Tu cuenta sigue igual y nadie accedió a tus datos.
+
+Si fuiste vos y no recordás tu contraseña, podés restablecerla en {{portalUrl}}/recuperar

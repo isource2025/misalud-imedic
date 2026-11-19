@@ -1,0 +1,5 @@
+Hola, {{nombre}}
+
+Tu código para verificar tu email y activar MiSalud es: {{codigo}}
+
+Vence en {{minutos}} minutos. Si no fuiste vos, ignorá este mensaje.
