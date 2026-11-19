@@ -226,14 +226,16 @@ function createMssqlRepos() {
   const empresas = {
     async listar() {
       const r = await (await req()).query(
-        'SELECT IdEmpresa, Habilitada, NombreVisible, SeccionesVisibles, DemoraPublicacionHoras FROM dbo.EmpresasPortal'
+        'SELECT IdEmpresa, Habilitada, NombreVisible, SeccionesVisibles, TiposAdjuntoVisibles, DemoraPublicacionHoras, FileServerUrl FROM dbo.EmpresasPortal'
       );
       return r.recordset.map((x) => ({
         idEmpresa: x.IdEmpresa,
         habilitada: Boolean(x.Habilitada),
         nombreVisible: x.NombreVisible,
         seccionesVisibles: JSON.parse(x.SeccionesVisibles || '[]'),
-        demoraPublicacionHoras: x.DemoraPublicacionHoras
+        tiposAdjuntoVisibles: x.TiposAdjuntoVisibles ? JSON.parse(x.TiposAdjuntoVisibles) : null,
+        demoraPublicacionHoras: x.DemoraPublicacionHoras,
+        fileServerUrl: x.FileServerUrl || null
       }));
     }
   };

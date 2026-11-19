@@ -3,17 +3,18 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Building2, CalendarDays, ClipboardList, FileText, Hospital, Stethoscope, UserRound } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ArrowLeft, Building2, CalendarDays, ClipboardList, FileText, Hospital, Paperclip, Stethoscope, UserRound } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AdjuntosPanel } from "./AdjuntosPanel";
 import { ICONO_TIPO, TONO_TIPO } from "./AtencionCard";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton, SkeletonText, Cargando } from "@/components/ui/Skeleton";
 import { duracionDias, fechaLarga } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
-import type { AtencionDetalle, Diagnostico } from "@/lib/types";
+import type { AdjuntosResponse, AtencionDetalle, Diagnostico } from "@/lib/types";
 
-type Tab = "resumen" | "hc" | "diagnostico" | "epicrisis";
+type Tab = "resumen" | "hc" | "diagnostico" | "epicrisis" | "adjuntos";
 
 export function DetalleSkeleton() {
   return (
@@ -85,7 +86,12 @@ const Vacio = ({ children }: { children: ReactNode }) => (
 
 export function DetalleAtencion({ id }: { id: string }) {
   const { data: a, error, cargando } = useApi<AtencionDetalle>(`/atenciones/${encodeURIComponent(id)}`);
+  const adj = useApi<AdjuntosResponse>(a ? `/atenciones/${encodeURIComponent(id)}/adjuntos` : null);
   const [tab, setTab] = useState<Tab>("resumen");
+  const tablist = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tablist.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, [tab]);
 
   if (cargando) return <DetalleSkeleton />;
   if (error || !a) {
@@ -107,7 +113,9 @@ export function DetalleAtencion({ id }: { id: string }) {
     { id: "hc", label: "Historia de ingreso", disabled: !a.hcIngreso.length },
     { id: "diagnostico", label: "Diagnóstico", disabled: !a.diagnostico && !a.diagnosticoEgreso },
     { id: "epicrisis", label: "Epicrisis", disabled: !a.epicrisis.length },
+    { id: "adjuntos", label: "Estudios y adjuntos", count: adj.data?.adjuntos.length },
   ];
+  const cantAdjuntos = adj.data?.adjuntos.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -150,7 +158,7 @@ export function DetalleAtencion({ id }: { id: string }) {
       </motion.header>
 
       <div className="-mx-5 overflow-x-auto px-5">
-        <div role="tablist" aria-label="Secciones" className="inline-flex min-w-full gap-1 rounded-2xl bg-slate-100/80 p-1 sm:min-w-0">
+        <div ref={tablist} role="tablist" aria-label="Secciones" className="inline-flex min-w-full gap-1 rounded-2xl bg-slate-100/80 p-1 sm:min-w-0">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -164,7 +172,10 @@ export function DetalleAtencion({ id }: { id: string }) {
               )}
             >
               {tab === t.id && <motion.span layoutId="detalle-tab" className="absolute inset-0 rounded-xl bg-white shadow-[0_1px_3px_rgba(15,23,42,.12)]" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-              <span className="relative">{t.label}</span>
+              <span className="relative">
+                {t.label}
+                {t.count ? <span className="ml-1.5 rounded-full bg-brand-100 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 tabular-nums">{t.count}</span> : null}
+              </span>
             </button>
           ))}
         </div>
@@ -189,7 +200,18 @@ export function DetalleAtencion({ id }: { id: string }) {
                   </span>
                 </button>
               )}
-              {!a.diagnostico && !hc && !a.epicrisis.length && <Vacio>Esta atención todavía no tiene información clínica publicada.</Vacio>}
+              {cantAdjuntos > 0 && (
+                <button onClick={() => setTab("adjuntos")} className="flex w-full items-center gap-4 rounded-3xl border border-brand-100 bg-brand-50/60 p-5 text-left transition hover:bg-brand-50 sm:p-6">
+                  <Paperclip className="size-7 shrink-0 text-brand-600" />
+                  <span>
+                    <span className="block font-semibold text-ink">
+                      {cantAdjuntos} {cantAdjuntos === 1 ? "estudio o archivo adjunto" : "estudios o archivos adjuntos"}
+                    </span>
+                    <span className="block text-sm text-slate-500">Informes, imágenes y documentos de esta atención. Podés verlos o descargarlos.</span>
+                  </span>
+                </button>
+              )}
+              {!a.diagnostico && !hc && !a.epicrisis.length && !cantAdjuntos && <Vacio>Esta atención todavía no tiene información clínica publicada.</Vacio>}
             </>
           )}
 
@@ -242,6 +264,7 @@ export function DetalleAtencion({ id }: { id: string }) {
                 {e.diagnostico && <DiagnosticoCard titulo="Diagnóstico al alta" d={e.diagnostico} />}
               </div>
             ))}
+          {tab === "adjuntos" && <AdjuntosPanel {...adj} clinica={a.clinica.nombre} />}
         </motion.div>
       </AnimatePresence>
 

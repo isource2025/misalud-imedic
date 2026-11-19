@@ -19,7 +19,19 @@ const porDni = (limit, minutos) =>
     keyGenerator: (req) => `dni:${normalizeDni(req.body?.dni) || req.cuenta?.dni}`
   });
 
+const porCuenta = (limit, minutos) =>
+  rateLimit({
+    windowMs: minutos * 60_000,
+    limit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler,
+    skip: (req) => !req.cuenta,
+    keyGenerator: (req) => `cuenta:${req.cuenta.id}`
+  });
+
 module.exports = {
+  adjuntosCuenta: porCuenta(120, 15),
   general: porIp(300, 5),
   loginIp: porIp(30, 15),
   loginDni: porDni(8, 15),

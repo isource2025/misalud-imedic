@@ -40,7 +40,10 @@ cd frontend && npm install && npm run dev
 3. **Vínculos:** busca el DNI en cada clínica habilitada y confirma la ficha solo si coinciden DNI, sexo y fecha de
    nacimiento. Los homónimos y los casos dudosos no muestran datos.
 4. **Portal:** inicio, atenciones de todas las clínicas con filtros, detalle con resumen, historia de ingreso,
-   diagnóstico y epicrisis, clínicas vinculadas y perfil.
+   diagnóstico y epicrisis, estudios y adjuntos, clínicas vinculadas y perfil.
+5. **Adjuntos:** lista `imPedidosEstudiosAdjuntos` de cada atención y los abre/descarga a través del backend
+   (proxy al file server de la clínica). El navegador nunca ve rutas, URLs del túnel ni ids de la clínica; cada
+   apertura vuelve a validar que el adjunto sea de una visita de una ficha confirmada de la cuenta.
 
 ## Seguridad
 
@@ -63,8 +66,13 @@ Parte de la base de auth y del motor de emails de IOSCOR, sin sus fallas:
 - **Catálogo (MySQL de plataforma):** vista `vw_MiSaludEmpresas` con el usuario `misalud_catalogo_ro` (script S5),
   nunca la tabla `Empresas`. Aporta nombre, servidor/base SQL, `FileServerUrl` y `PacsUrl`. Qué clínica se publica
   lo decide `EmpresasPortal` del portal.
-- **File server / PACS (Fase 2):** pedidos firmados con `x-imedic-sig`, mismo esquema y mismas claves que iMedic
-  (`backend/src/lib/signedFileToken.js` es copia textual del de iMedic; no se edita acá).
+- **File server / PACS:** pedidos firmados con `x-imedic-sig`, mismo esquema y mismas claves que iMedic
+  (`backend/src/lib/signedFileToken.js` es copia textual del de iMedic; no se edita acá). Mientras una clínica no
+  tenga clave, el pedido sale sin firma (los file servers PowerShell instalados hoy no validan nada);
+  `FILE_SERVER_EXIGIR_FIRMA=true` lo prohíbe. Las URLs de los túneles están en `EmpresasPortal.FileServerUrl`.
+- **Verificación en producción:** dentro del contenedor del backend, `node scripts/verificar-adjuntos.js`
+  (grants del login de solo lectura, estado del file server, descarga de muestra y recorrido completo con las
+  cuentas vinculadas). Imprime solo conteos y estados.
 - **Fotos:** las URLs firmadas de iMedic vencen en 2–3 h; el portal no las guarda en ningún lado.
 
 ## Variables y migraciones
@@ -95,7 +103,7 @@ Proyecto con *root directory* `frontend/` y `BACKEND_URL` apuntando al servicio 
 
 - El script S4 de iMedic deja `imHCI` en Fase 2, pero el MVP muestra la historia clínica de ingreso. Hasta que
   `imHCI` pase a la lista del MVP, esa pestaña queda vacía con el login de solo lectura.
-- Adjuntos e imágenes (PACS) en Fase 2, usando `backend/src/clinicas/clinicaHttp.js`.
+- Imágenes PACS en Fase 2, usando `backend/src/clinicas/clinicaHttp.js`.
 - Panel de administración de clínicas (lo maneja el super admin de iMedic).
 - Rate limit compartido (Redis) si el backend corre con más de una instancia.
 - Las migraciones y consultas SQL no se probaron contra un SQL Server real.

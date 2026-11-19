@@ -30,7 +30,8 @@ function publicar(idCuenta, empresa, v) {
     diagnostico: secciones.has('diagnostico') ? v.diagnostico : null,
     secciones: {
       hcIngreso: secciones.has('hcIngreso') && v.tieneHcIngreso,
-      epicrisis: secciones.has('epicrisis') && v.tieneEpicrisis
+      epicrisis: secciones.has('epicrisis') && v.tieneEpicrisis,
+      adjuntos: secciones.has('adjuntos') ? v.cantAdjuntos || 0 : 0
     }
   };
 }

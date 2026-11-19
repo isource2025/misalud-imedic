@@ -27,8 +27,22 @@ export type Atencion = {
   fechaEgreso: string | null;
   servicio: string | null;
   diagnostico: Diagnostico | null;
-  secciones: { hcIngreso: boolean; epicrisis: boolean };
+  secciones: { hcIngreso: boolean; epicrisis: boolean; adjuntos: number };
 };
+
+export type TipoAdjunto = "pdf" | "imagen" | "dicom" | "video" | "documento" | "otro";
+
+export type Adjunto = {
+  id: string;
+  nombre: string;
+  extension: string | null;
+  tipo: TipoAdjunto;
+  vistaPrevia: boolean;
+  categoria: string | null;
+  fecha: string | null;
+};
+
+export type AdjuntosResponse = { adjuntos: Adjunto[]; publicados: boolean };
 
 export type HcIngreso = {
   fecha: string;

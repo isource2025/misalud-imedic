@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import Link from "next/link";
-import { BedDouble, CalendarClock, ChevronRight, FileText, Stethoscope, Sun } from "lucide-react";
+import { BedDouble, CalendarClock, ChevronRight, FileText, Paperclip, Stethoscope, Sun } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { diaMes, duracionDias } from "@/lib/format";
 import type { Atencion, TipoAtencion } from "@/lib/types";
@@ -54,6 +54,11 @@ export function AtencionCard({ a, compacta }: { a: Atencion; compacta?: boolean 
             {a.secciones.epicrisis && (
               <Badge tone="green">
                 <FileText className="size-3" /> Epicrisis
+              </Badge>
+            )}
+            {a.secciones.adjuntos > 0 && (
+              <Badge tone="blue">
+                <Paperclip className="size-3" /> {a.secciones.adjuntos} {a.secciones.adjuntos === 1 ? "adjunto" : "adjuntos"}
               </Badge>
             )}
           </div>

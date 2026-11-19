@@ -12,10 +12,12 @@ const logger = require('../lib/logger');
 const { toIsoDate } = require('../lib/clarion');
 const { normalizeDni, normalizeSexo } = require('../lib/text');
 const { obtenerHabilitada } = require('./empresas');
+const { pedirAClinica } = require('./clinicaHttp');
 const { seccionesHci, signosDeControl } = require('./hciSecciones');
 
 const textoLimpio = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
 
+const ADJUNTOS = 'imPedidosEstudiosAdjuntos';
 const pools = new Map();
 const columnCache = new Map();
 const permisoCache = new Map();
@@ -218,14 +220,15 @@ const mapVisita = (x) => ({
   medico: x.Medico || null,
   diagnostico: x.DiagnosticoCodigo ? { codigo: x.DiagnosticoCodigo, descripcion: x.DiagnosticoDescripcion || null } : null,
   tieneHcIngreso: Boolean(x.TieneHci),
-  tieneEpicrisis: Boolean(x.TieneEpicrisis)
+  tieneEpicrisis: Boolean(x.TieneEpicrisis),
+  cantAdjuntos: 0
 });
 
 async function listarAtenciones(idEmpresa, idsPaciente) {
   if (!idsPaciente.length) return [];
   const pool = await getPool(idEmpresa);
   const s = await selectVisita(idEmpresa);
-  const conHci = await puedeLeer(idEmpresa, 'imHCI');
+  const [conHci, conAdjuntos] = await Promise.all([puedeLeer(idEmpresa, 'imHCI'), puedeLeer(idEmpresa, ADJUNTOS)]);
   const request = pool.request();
   const ids = inList(request, idsPaciente);
   const r = await request.query(`
@@ -238,7 +241,24 @@ async function listarAtenciones(idEmpresa, idsPaciente) {
     WHERE v.IDPACIENTE IN (${ids})
     ORDER BY v.FECHAADMISIONS DESC, v.NUMEROVISITA DESC
   `);
-  return r.recordset.map(mapVisita);
+  const filas = r.recordset.map(mapVisita);
+  if (conAdjuntos && filas.length) {
+    const cantidades = await contarAdjuntos(pool, filas.map((f) => f.numeroVisita)).catch((err) => {
+      logger.warn('adjuntos_conteo_error', { idEmpresa, code: err.code });
+      return new Map();
+    });
+    for (const f of filas) f.cantAdjuntos = cantidades.get(f.numeroVisita) || 0;
+  }
+  return filas;
+}
+
+/** Cantidad de adjuntos por visita. Aparte de la línea de tiempo: si falla, la línea de tiempo sigue. */
+async function contarAdjuntos(pool, visitas) {
+  const request = pool.request();
+  const lista = inList(request, visitas, 'nv');
+  const r = await request.query(`
+    SELECT a.NumeroVisita, COUNT(*) AS n FROM dbo.${ADJUNTOS} a WHERE a.NumeroVisita IN (${lista}) GROUP BY a.NumeroVisita`);
+  return new Map(r.recordset.map((x) => [Number(x.NumeroVisita), Number(x.n)]));
 }
 
 async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
@@ -361,4 +381,96 @@ async function detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
   };
 }
 
-module.exports = { buscarPacientesPorDni, listarAtenciones, detalleAtencion };
+/**
+ * Adjuntos de una visita del paciente. La pertenencia se resuelve en la misma consulta (visita → IDPACIENTE de los
+ * vínculos confirmados). Devuelve null si el login no puede leer la tabla (S4 sin aplicar en esa clínica).
+ * `ruta` (PatchServidor) nunca sale del backend.
+ */
+async function consultarAdjuntos(idEmpresa, numeroVisita, idsPaciente, idAdjunto) {
+  if (!idsPaciente.length) return [];
+  if (!(await puedeLeer(idEmpresa, ADJUNTOS))) return null;
+  const [conTipos, conPatch] = await Promise.all([
+    puedeLeer(idEmpresa, 'hctiposimagenes'),
+    tieneColumna(idEmpresa, ADJUNTOS, 'Patch')
+  ]);
+  const pool = await getPool(idEmpresa);
+  const request = pool.request().input('nv', sql.Int, numeroVisita);
+  const ids = inList(request, idsPaciente);
+  if (idAdjunto != null) request.input('ia', sql.Int, idAdjunto);
+  const r = await request.query(`
+    SELECT TOP 200
+      a.IdAdjunto,
+      LTRIM(RTRIM(ISNULL(CAST(a.Descripcion AS NVARCHAR(400)), ''))) AS Descripcion,
+      COALESCE(NULLIF(LTRIM(RTRIM(CAST(a.PatchServidor AS NVARCHAR(1000)))), ''),
+               ${conPatch ? `NULLIF(LTRIM(RTRIM(CAST(a.Patch AS NVARCHAR(1000)))), '')` : 'NULL'}) AS Ruta,
+      CONVERT(VARCHAR(19), a.Fecha, 126) AS Fecha,
+      LTRIM(RTRIM(CAST(ISNULL(a.idtipoimagen, '') AS VARCHAR(20)))) AS TipoImagen,
+      ${conTipos ? `LTRIM(RTRIM(ISNULL(t.desctipoimagen, '')))` : `CAST('' AS VARCHAR(100))`} AS TipoImagenNombre
+    FROM dbo.${ADJUNTOS} a
+    INNER JOIN dbo.imVisita v ON v.NUMEROVISITA = a.NumeroVisita
+    ${conTipos ? 'LEFT JOIN dbo.hctiposimagenes t ON a.idtipoimagen = t.tipoimagen' : ''}
+    WHERE a.NumeroVisita = @nv AND v.IDPACIENTE IN (${ids})
+      ${idAdjunto != null ? 'AND a.IdAdjunto = @ia' : ''}
+    ORDER BY a.Fecha DESC, a.IdAdjunto DESC
+  `);
+  return r.recordset.map((x) => ({
+    idAdjunto: Number(x.IdAdjunto),
+    descripcion: x.Descripcion || null,
+    ruta: x.Ruta || null,
+    fecha: x.Fecha || null,
+    tipoImagen: x.TipoImagen || null,
+    tipoImagenNombre: x.TipoImagenNombre || null
+  }));
+}
+
+const listarAdjuntos = (idEmpresa, numeroVisita, idsPaciente) => consultarAdjuntos(idEmpresa, numeroVisita, idsPaciente);
+
+async function obtenerAdjunto(idEmpresa, numeroVisita, idAdjunto, idsPaciente) {
+  const filas = await consultarAdjuntos(idEmpresa, numeroVisita, idsPaciente, idAdjunto);
+  return filas?.[0] || null;
+}
+
+/** Variantes de PatchServidor que entienden los file servers (el PowerShell y el firmado resuelven el resto). */
+function rutasCandidatas(ruta) {
+  const original = String(ruta || '').trim();
+  if (!original) return [];
+  const out = [original];
+  const unidad = original.replace(/^[DF]:\\/i, 'E:\\');
+  if (unidad !== original) out.push(unidad);
+  const legacy = original.match(/^\\\\[^\\]+\\imagenes\\[^\\]+\\(.+)$/i);
+  if (legacy) out.push(legacy[1]);
+  return [...new Set(out)];
+}
+
+/**
+ * GET /file del file server de la clínica (túnel files-<clinica>). Prueba las variantes de ruta hasta que una no
+ * dé 404. Devuelve el Response de fetch con el cuerpo sin consumir.
+ */
+async function abrirArchivoAdjunto(idEmpresa, ruta, { timeoutMs } = {}) {
+  let ultimo = null;
+  for (const candidata of rutasCandidatas(ruta)) {
+    // Doble encode como iMedic: el HttpListener de PowerShell decodifica el query como Latin-1.
+    const res = await pedirAClinica({
+      servicio: 'fs',
+      idEmpresa,
+      ruta: `/file?path=${encodeURIComponent(encodeURIComponent(candidata))}`,
+      timeoutMs
+    });
+    if (res.status !== 404) return res;
+    await res.body?.cancel().catch(() => {});
+    ultimo = res;
+  }
+  return ultimo;
+}
+
+module.exports = {
+  buscarPacientesPorDni,
+  listarAtenciones,
+  detalleAtencion,
+  listarAdjuntos,
+  obtenerAdjunto,
+  abrirArchivoAdjunto,
+  rutasCandidatas,
+  getPool,
+  puedeLeer
+};

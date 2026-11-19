@@ -80,6 +80,11 @@ const PLANTILLAS = [
       profesional: 'Dr. Ricardo Molina',
       sector: 'Guardia'
     },
+    adjuntos: [
+      { descripcion: 'Ecografía abdominal.pdf', tipoImagen: '3', tipoImagenNombre: 'Ecografía', offsetDias: 0 },
+      { descripcion: 'Laboratorio de ingreso.pdf', tipoImagen: '1', tipoImagenNombre: 'Laboratorio', offsetDias: 0 },
+      { descripcion: 'Foto de herida al alta.png', tipoImagen: '9', tipoImagenNombre: 'Fotografía', offsetDias: 3 }
+    ],
     epicrisis: {
       texto:
         'Paciente de 41 años que ingresa por cuadro de abdomen agudo compatible con apendicitis. Se realiza apendicectomía laparoscópica sin complicaciones. Evoluciona favorablemente, afebril, con buena tolerancia oral y herida sin signos de infección. Se otorga el alta con analgesia por vía oral, control por consultorio externo de cirugía a los 7 días y pautas de alarma.',
@@ -97,6 +102,7 @@ const PLANTILLAS = [
     centro: 'Sede Sarmiento',
     diagnostico: { codigo: 'J18.9', descripcion: 'Neumonía, no especificada' },
     diagnosticoEgreso: { codigo: 'J18.9', descripcion: 'Neumonía, no especificada' },
+    adjuntos: [{ descripcion: 'Radiografía de tórax.png', tipoImagen: '2', tipoImagenNombre: 'Radiografía', offsetDias: 0 }],
     hcIngreso: {
       motivoConsulta: 'Fiebre, tos productiva y dificultad para respirar de 4 días de evolución.',
       enfermedadActual:
@@ -151,6 +157,7 @@ const isoDias = (offset) => {
 };
 
 let nextVisita = { [GUEMES]: 180000, [SARMIENTO]: 92000 };
+let nextAdjunto = 40000;
 
 function sembrarVisitas(idPacientePorEmpresa) {
   for (const p of PLANTILLAS) {
@@ -173,7 +180,15 @@ function sembrarVisitas(idPacientePorEmpresa) {
       hcIngreso: p.hcIngreso ? [{ fecha: fechaIngreso, hora: p.hora, ...p.hcIngreso }] : [],
       epicrisis: p.epicrisis
         ? [{ fecha: fechaEgreso, hora: '12:30', diagnostico: p.diagnosticoEgreso || p.diagnostico, ...p.epicrisis }]
-        : []
+        : [],
+      adjuntos: (p.adjuntos || []).map((a) => ({
+        idAdjunto: ++nextAdjunto,
+        descripcion: a.descripcion,
+        ruta: `E:\\adjuntos\\mock\\${a.descripcion}`,
+        fecha: `${isoDias(p.offsetDias + a.offsetDias)}T10:15:00`,
+        tipoImagen: a.tipoImagen,
+        tipoImagenNombre: a.tipoImagenNombre
+      }))
     });
   }
 }
@@ -201,7 +216,8 @@ visitas[GUEMES].push({
       sector: 'Guardia'
     }
   ],
-  epicrisis: []
+  epicrisis: [],
+  adjuntos: []
 });
 
 let nextPaciente = 9000;
@@ -232,11 +248,80 @@ function verificarDisponible(idEmpresa) {
   return demora();
 }
 
-const sinDetalle = ({ hcIngreso, epicrisis, diagnosticoEgreso, idPaciente, ...v }) => ({
+const sinDetalle = ({ hcIngreso, epicrisis, diagnosticoEgreso, idPaciente, adjuntos, ...v }) => ({
   ...v,
   tieneHcIngreso: hcIngreso.length > 0,
-  tieneEpicrisis: epicrisis.length > 0
+  tieneEpicrisis: epicrisis.length > 0,
+  cantAdjuntos: adjuntos.length
 });
+
+const visitaDe = (idEmpresa, numeroVisita, idsPaciente) =>
+  (visitas[idEmpresa] || []).find((x) => x.numeroVisita === numeroVisita && idsPaciente.includes(x.idPaciente));
+
+function pdfMock(titulo) {
+  const texto = String(titulo).replace(/[()\\]/g, '');
+  const contenido = `BT /F1 20 Tf 72 720 Td (MiSalud - documento de prueba) Tj 0 -32 Td /F1 14 Tf (${texto}) Tj ET`;
+  const objetos = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${contenido.length} >>\nstream\n${contenido}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objetos.map((o, i) => {
+    const at = pdf.length;
+    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    return at;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objetos.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objetos.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+function pngMock(ancho = 320, alto = 220) {
+  const zlib = require('zlib');
+  const crcTabla = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTabla[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (tipo, datos) => {
+    const largo = Buffer.alloc(4);
+    largo.writeUInt32BE(datos.length);
+    const cuerpo = Buffer.concat([Buffer.from(tipo, 'ascii'), datos]);
+    const c = Buffer.alloc(4);
+    c.writeUInt32BE(crc(cuerpo));
+    return Buffer.concat([largo, cuerpo, c]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(ancho, 0);
+  ihdr.writeUInt32BE(alto, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const filas = [];
+  for (let y = 0; y < alto; y++) {
+    const fila = Buffer.alloc(1 + ancho * 3);
+    for (let x = 0; x < ancho; x++) {
+      const r = Math.hypot(x - ancho / 2, y - alto / 2) / (ancho / 2);
+      const v = Math.max(0, Math.min(255, Math.round(230 - 180 * r)));
+      fila.set([Math.round(v * 0.85), Math.round(v * 0.9), v], 1 + x * 3);
+    }
+    filas.push(fila);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(Buffer.concat(filas))),
+    chunk('IEND', Buffer.alloc(0))
+  ]);
+}
 
 module.exports = {
   async buscarPacientesPorDni(idEmpresa, dni) {
@@ -253,14 +338,30 @@ module.exports = {
   },
   async detalleAtencion(idEmpresa, numeroVisita, idsPaciente) {
     await verificarDisponible(idEmpresa);
-    const v = (visitas[idEmpresa] || []).find((x) => x.numeroVisita === numeroVisita && idsPaciente.includes(x.idPaciente));
+    const v = visitaDe(idEmpresa, numeroVisita, idsPaciente);
     if (!v) return null;
     const { idPaciente, ...rest } = v;
     return { ...sinDetalle(v), diagnosticoEgreso: rest.diagnosticoEgreso, hcIngreso: rest.hcIngreso, epicrisis: rest.epicrisis };
   },
+  async listarAdjuntos(idEmpresa, numeroVisita, idsPaciente) {
+    await verificarDisponible(idEmpresa);
+    return (visitaDe(idEmpresa, numeroVisita, idsPaciente)?.adjuntos || []).map((a) => ({ ...a }));
+  },
+  async obtenerAdjunto(idEmpresa, numeroVisita, idAdjunto, idsPaciente) {
+    await verificarDisponible(idEmpresa);
+    const a = visitaDe(idEmpresa, numeroVisita, idsPaciente)?.adjuntos.find((x) => x.idAdjunto === idAdjunto);
+    return a ? { ...a } : null;
+  },
+  async abrirArchivoAdjunto(idEmpresa, ruta) {
+    await verificarDisponible(idEmpresa);
+    const nombre = String(ruta).split('\\').pop();
+    const esPng = /\.png$/i.test(nombre);
+    const cuerpo = esPng ? pngMock() : pdfMock(nombre.replace(/\.[^.]+$/, ''));
+    return new Response(cuerpo, { status: 200, headers: { 'content-type': esPng ? 'image/png' : 'application/pdf' } });
+  },
   asegurarPaciente,
   EMPRESAS_MOCK: [
-    { idEmpresa: GUEMES, habilitada: true, nombreVisible: 'Sanatorio Güemes', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 },
-    { idEmpresa: SARMIENTO, habilitada: true, nombreVisible: 'Sanatorio Sarmiento', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'], demoraPublicacionHoras: 0 }
+    { idEmpresa: GUEMES, habilitada: true, nombreVisible: 'Sanatorio Güemes', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'], demoraPublicacionHoras: 0 },
+    { idEmpresa: SARMIENTO, habilitada: true, nombreVisible: 'Sanatorio Sarmiento', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'], demoraPublicacionHoras: 0 }
   ]
 };

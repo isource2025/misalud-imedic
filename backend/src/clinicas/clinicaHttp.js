@@ -4,11 +4,30 @@
 // cualquier cambio se hace allá (y en los instaladores PowerShell) y se vuelve a copiar.
 // Claves (las mismas de iMedic SaaS): FILE_SERVER_SIGNING_KEYS / PACS_SIGNING_KEYS ({"101":"clave"}) o la
 // derivada de IMEDIC_SIGNING_MASTER. A diferencia de iMedic, el portal no manda el token fijo viejo
-// (x-imedic-token): solo habla con servidores que ya están en security=v1.
+// (x-imedic-token).
+// Transición: los file servers instalados hoy (PowerShell ps1-unc, auth "tunnel") no validan nada e ignoran la
+// firma. Mientras una clínica no tenga clave, el pedido sale sin firma; con FILE_SERVER_EXIGIR_FIRMA=true (o
+// PACS_EXIGIR_FIRMA) se corta antes de salir. Cuando todas las clínicas corran el file server firmado, activarlo.
 // Las URLs firmadas o de fotos que devuelvan estos servicios no se guardan en ningún lado: vencen.
 const { config } = require('../config');
 const signed = require('../lib/signedFileToken');
+const logger = require('../lib/logger');
 const { obtenerHabilitada } = require('./empresas');
+
+const EXIGIR_FIRMA_ENV = { fs: 'FILE_SERVER_EXIGIR_FIRMA', pacs: 'PACS_EXIGIR_FIRMA' };
+const avisadasSinClave = new Set();
+
+function headersDePedido({ servicio, idEmpresa, method, url }) {
+  if (signed.clinicKeyFor(servicio, idEmpresa) || /^(1|true)$/i.test(process.env[EXIGIR_FIRMA_ENV[servicio]] || '')) {
+    return firmarPedido({ servicio, idEmpresa, method, url });
+  }
+  const k = `${servicio}:${idEmpresa}`;
+  if (!avisadasSinClave.has(k)) {
+    avisadasSinClave.add(k);
+    logger.warn('clinica_pedido_sin_firma', { servicio, idEmpresa: Number(idEmpresa) });
+  }
+  return {};
+}
 
 const SERVICIOS = {
   fs: { campo: 'fileServerUrl', ttlEnv: 'FILE_SERVER_SIGNING_TTL_S' },
@@ -51,7 +70,7 @@ async function pedirAClinica({ servicio, idEmpresa, ruta, method = 'GET', timeou
       method,
       signal: ctrl.signal,
       redirect: 'error',
-      headers: firmarPedido({ servicio, idEmpresa, method, url: url.pathname + url.search })
+      headers: headersDePedido({ servicio, idEmpresa, method, url: url.pathname + url.search })
     });
   } catch (err) {
     if (err.code) throw err;

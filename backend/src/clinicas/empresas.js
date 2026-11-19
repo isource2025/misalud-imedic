@@ -3,14 +3,15 @@
 //   del SQL Server de cada clínica sale de CLINICA_<ID>_DB_*.
 // - EMPRESAS_SOURCE=imedic: además lee la vista vw_MiSaludEmpresas del MySQL de plataforma de iMedic SaaS con el
 //   usuario misalud_catalogo_ro (solo SELECT sobre esa vista; nunca la tabla Empresas). La vista aporta nombre,
-//   servidor/base SQL (sin usuario ni contraseña), FileServerUrl y PacsUrl. Habilitada sigue siendo
+//   servidor/base SQL (sin usuario ni contraseña), FileServerUrl y PacsUrl. FileServerUrl de EmpresasPortal le
+//   gana al catálogo, y CLINICA_<ID>_FILE_SERVER_URL a ambos. Habilitada sigue siendo
 //   EmpresasPortal; si la vista llega a exponer PortalHabilitado, también se exige.
 // El catálogo vive solo en memoria: no se copia a la base del portal.
 const { config } = require('../config');
 const { getRepos } = require('../repos');
 const logger = require('../lib/logger');
 
-const SECCIONES_DEFAULT = ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis'];
+const SECCIONES_DEFAULT = ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'];
 const VISTA_CATALOGO = 'vw_MiSaludEmpresas';
 const CACHE_MS = 60_000;
 let cache = { at: 0, data: null };
@@ -63,8 +64,10 @@ function armar(local, catalogo) {
     nombre: local.nombreVisible || catalogo?.descripcion || `Clínica ${local.idEmpresa}`,
     seccionesVisibles: local.seccionesVisibles?.length ? local.seccionesVisibles : SECCIONES_DEFAULT,
     demoraPublicacionHoras: local.demoraPublicacionHoras ?? 0,
+    tiposAdjuntoVisibles: Array.isArray(local.tiposAdjuntoVisibles) ? local.tiposAdjuntoVisibles.map((t) => String(t).trim()) : null,
     db: catalogo?.db || null,
-    fileServerUrl: process.env[`CLINICA_${local.idEmpresa}_FILE_SERVER_URL`] || catalogo?.fileServerUrl || null,
+    fileServerUrl:
+      process.env[`CLINICA_${local.idEmpresa}_FILE_SERVER_URL`] || local.fileServerUrl || catalogo?.fileServerUrl || null,
     pacsUrl: process.env[`CLINICA_${local.idEmpresa}_PACS_URL`] || catalogo?.pacsUrl || null
   };
 }
