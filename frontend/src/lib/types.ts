@@ -46,6 +46,39 @@ export type Adjunto = {
 
 export type AdjuntosResponse = { adjuntos: Adjunto[]; publicados: boolean };
 
+export type PacsEstudio = {
+  id: string;
+  fecha: string | null;
+  descripcion: string;
+  modalidad: string | null;
+  seriesCount: number | null;
+  instanceCount: number | null;
+};
+
+export type PacsSerie = {
+  id: string;
+  number: number;
+  modality: string | null;
+  description: string | null;
+  instanceCount: number | null;
+};
+
+export type PacsArchivo = {
+  id: string;
+  nombre: string;
+  size: number | null;
+  seriesUid: string | null;
+};
+
+export type PacsResponse = {
+  publicados: boolean;
+  disponible: boolean;
+  desde: string | null;
+  hasta: string | null;
+  egresada: boolean;
+  estudios: PacsEstudio[];
+};
+
 export type HcIngreso = {
   fecha: string;
   hora: string | null;

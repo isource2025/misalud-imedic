@@ -8,9 +8,10 @@ function createMemoryRepos() {
     busquedas: new Map(),
     empresas: new Map(),
     emails: new Map(),
+    enlaces: new Map(),
     auditoria: []
   };
-  const seq = { cuentas: 0, codigos: 0, vinculos: 0, emails: 0 };
+  const seq = { cuentas: 0, codigos: 0, vinculos: 0, emails: 0, enlaces: 0 };
   const now = () => new Date();
   const clone = (o) => (o ? { ...o } : null);
 
@@ -174,6 +175,34 @@ function createMemoryRepos() {
     }
   };
 
+  const enlaces = {
+    async crear(data) {
+      const id = ++seq.enlaces;
+      const row = { id, usos: 0, revocado: false, creadoEn: now(), ...data };
+      db.enlaces.set(id, row);
+      return clone(row);
+    },
+    async porTokenHash(tokenHash) {
+      return clone([...db.enlaces.values()].find((e) => e.tokenHash === tokenHash));
+    },
+    async listarPorVisita(idCuenta, idEmpresa, numeroVisita) {
+      return [...db.enlaces.values()]
+        .filter((e) => e.idCuenta === idCuenta && e.idEmpresa === idEmpresa && e.numeroVisita === numeroVisita)
+        .sort((a, b) => b.creadoEn - a.creadoEn)
+        .map(clone);
+    },
+    async revocar(idCuenta, id) {
+      const row = db.enlaces.get(Number(id));
+      if (!row || row.idCuenta !== idCuenta) return false;
+      row.revocado = true;
+      return true;
+    },
+    async registrarUso(id) {
+      const row = db.enlaces.get(Number(id));
+      if (row) row.usos += 1;
+    }
+  };
+
   const auditoria = {
     async registrar(evento) {
       db.auditoria.push({ fecha: now(), ...evento });
@@ -181,7 +210,7 @@ function createMemoryRepos() {
     }
   };
 
-  return { kind: 'memory', cuentas, codigos, sesiones, vinculos, empresas, emails, auditoria, _db: db };
+  return { kind: 'memory', cuentas, codigos, sesiones, vinculos, empresas, emails, enlaces, auditoria, _db: db };
 }
 
 module.exports = { createMemoryRepos };

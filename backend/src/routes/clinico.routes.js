@@ -3,6 +3,9 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const atenciones = require('../services/atenciones');
 const adjuntos = require('../services/adjuntos');
+const pacs = require('../services/pacs');
+const pdfHistoria = require('../services/pdfHistoria');
+const compartir = require('../services/compartir');
 const logger = require('../lib/logger');
 const vinculos = require('../services/vinculos');
 const { auditar } = require('../services/audit');
@@ -83,6 +86,121 @@ router.get(
     pipeline(cuerpo, res).catch((err) => {
       if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE') logger.warn('adjunto_stream_error', { idEmpresa: _ref.idEmpresa, code: err.code });
     });
+  })
+);
+
+router.get(
+  '/atenciones/:id/pacs',
+  asyncHandler(async (req, res) => {
+    try {
+      const { _ref, ...r } = await pacs.listarPorAtencion(req.cuenta, req.params.id);
+      auditar(req, { accion: 'pacs_listar', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+      res.set('Cache-Control', 'no-store').json(r);
+    } catch (err) {
+      auditar(req, { accion: 'pacs_listar', resultado: err.status === 404 ? 'denegado' : 'error' });
+      throw err;
+    }
+  })
+);
+
+router.get(
+  '/pacs/estudios/:id/series',
+  rl.pacsCuenta,
+  asyncHandler(async (req, res) => {
+    const { _ref, ...r } = await pacs.listarSeries(req.cuenta, req.params.id);
+    auditar(req, { accion: 'pacs_series', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+    res.set('Cache-Control', 'no-store').json(r);
+  })
+);
+
+router.get(
+  '/pacs/estudios/:id/archivos',
+  rl.pacsCuenta,
+  asyncHandler(async (req, res) => {
+    const { _ref, ...r } = await pacs.listarArchivos(req.cuenta, req.params.id);
+    auditar(req, { accion: 'pacs_archivos', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+    res.set('Cache-Control', 'no-store').json(r);
+  })
+);
+
+router.get(
+  '/pacs/estudios/:id/disponible',
+  rl.pacsCuenta,
+  asyncHandler(async (req, res) => {
+    const { _ref, ...r } = await pacs.disponible(req.cuenta, req.params.id);
+    res.set('Cache-Control', 'no-store').json(r);
+  })
+);
+
+router.get(
+  '/pacs/archivos/:id',
+  rl.pacsCuenta,
+  asyncHandler(async (req, res) => {
+    let abierto;
+    try {
+      abierto = await pacs.abrirArchivo(req.cuenta, req.params.id);
+    } catch (err) {
+      auditar(req, { accion: 'pacs_archivo', resultado: err.status === 404 ? 'denegado' : 'error' });
+      throw err;
+    }
+    const { res: origen, headers, _ref } = abierto;
+    auditar(req, { accion: 'pacs_archivo', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+    res.status(200).set(headers);
+    const cuerpo = Readable.fromWeb(origen.body);
+    req.on('close', () => cuerpo.destroy());
+    pipeline(cuerpo, res).catch((err) => {
+      if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE') logger.warn('pacs_stream_error', { idEmpresa: _ref.idEmpresa, code: err.code });
+    });
+  })
+);
+
+router.get(
+  '/atenciones/:id/pdf',
+  rl.pdfCuenta,
+  asyncHandler(async (req, res) => {
+    try {
+      const { buffer, nombre, _ref } = await pdfHistoria.generarBuffer(req.cuenta, req.params.id);
+      auditar(req, { accion: 'pdf_historia', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${nombre}"`,
+        'Cache-Control': 'private, no-store'
+      });
+      res.send(buffer);
+    } catch (err) {
+      auditar(req, { accion: 'pdf_historia', resultado: err.status === 404 ? 'denegado' : 'error' });
+      throw err;
+    }
+  })
+);
+
+router.post(
+  '/atenciones/:id/compartir',
+  rl.compartirCuenta,
+  validate(s.compartir, 'body'),
+  asyncHandler(async (req, res) => {
+    const { _ref, ...r } = await compartir.crear(req.cuenta, req.params.id, req.body);
+    auditar(req, { accion: 'enlace_crear', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+    res.status(201).json(r);
+  })
+);
+
+router.get(
+  '/atenciones/:id/compartidos',
+  asyncHandler(async (req, res) => {
+    const { _ref, ...r } = await compartir.listarDeAtencion(req.cuenta, req.params.id);
+    auditar(req, { accion: 'enlaces_listar', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+    res.set('Cache-Control', 'no-store').json(r);
+  })
+);
+
+router.delete(
+  '/compartidos/:id',
+  rl.compartirCuenta,
+  asyncHandler(async (req, res) => {
+    await compartir.revocar(req.cuenta, req.params.id);
+    auditar(req, { accion: 'enlace_revocar', resultado: 'ok' });
+    res.json({ ok: true });
   })
 );
 

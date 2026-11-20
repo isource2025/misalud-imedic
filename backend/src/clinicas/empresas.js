@@ -11,7 +11,7 @@ const { config } = require('../config');
 const { getRepos } = require('../repos');
 const logger = require('../lib/logger');
 
-const SECCIONES_DEFAULT = ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'];
+const SECCIONES_DEFAULT = ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos', 'pacs'];
 const VISTA_CATALOGO = 'vw_MiSaludEmpresas';
 const CACHE_MS = 60_000;
 let cache = { at: 0, data: null };
@@ -68,7 +68,7 @@ function armar(local, catalogo) {
     db: catalogo?.db || null,
     fileServerUrl:
       process.env[`CLINICA_${local.idEmpresa}_FILE_SERVER_URL`] || local.fileServerUrl || catalogo?.fileServerUrl || null,
-    pacsUrl: process.env[`CLINICA_${local.idEmpresa}_PACS_URL`] || catalogo?.pacsUrl || null
+    pacsUrl: process.env[`CLINICA_${local.idEmpresa}_PACS_URL`] || local.pacsUrl || catalogo?.pacsUrl || null
   };
 }
 

@@ -32,6 +32,10 @@ const porCuenta = (limit, minutos) =>
 
 module.exports = {
   adjuntosCuenta: porCuenta(120, 15),
+  pacsCuenta: porCuenta(180, 15),
+  pdfCuenta: porCuenta(30, 15),
+  compartirCuenta: porCuenta(40, 60),
+  compartirPublico: porIp(60, 15),
   general: porIp(300, 5),
   loginIp: porIp(30, 15),
   loginDni: porDni(8, 15),

@@ -461,6 +461,66 @@ async function obtenerAdjunto(idEmpresa, numeroVisita, idAdjunto, idsPaciente) {
   return filas?.[0] || null;
 }
 
+/**
+ * Contexto para filtrar estudios PACS de una visita: documento del paciente, ventana de fechas
+ * y hermanas del mismo IDPaciente (más reciente primero) para no duplicar estudios entre visitas.
+ */
+async function contextoPacsVisita(idEmpresa, numeroVisita, idsPaciente) {
+  if (!idsPaciente.length) return null;
+  const pool = await getPool(idEmpresa);
+  const request = pool.request().input('nv', sql.Int, numeroVisita);
+  const ids = inList(request, idsPaciente);
+  const r = await request.query(`
+    SELECT TOP 1
+      v.NUMEROVISITA AS NumeroVisita,
+      v.IDPACIENTE AS IdPaciente,
+      LTRIM(RTRIM(CAST(p.NumeroDocumento AS VARCHAR(30)))) AS NumeroDocumento,
+      CONVERT(VARCHAR(10), v.FECHAADMISIONS, 23) AS FechaAdmision,
+      v.FechaEgreso AS FechaEgresoClarion
+    FROM dbo.imVisita v
+    INNER JOIN dbo.imPacientes p ON p.IdPaciente = v.IDPACIENTE
+    WHERE v.NUMEROVISITA = @nv AND v.IDPACIENTE IN (${ids})
+  `);
+  const row = r.recordset[0];
+  if (!row) return null;
+
+  const hoy = new Date().toISOString().slice(0, 10);
+  const desde = row.FechaAdmision || null;
+  const egreso = toIsoDate(row.FechaEgresoClarion);
+  const hasta = egreso || hoy;
+  const documento = String(row.NumeroDocumento || '').replace(/\D/g, '');
+  const idPaciente = Number(row.IdPaciente);
+
+  let visitasPaciente = [{ numeroVisita: Number(row.NumeroVisita), desde, hasta }];
+  if (Number.isFinite(idPaciente) && idPaciente > 0) {
+    const hermanas = await pool
+      .request()
+      .input('ip', sql.Int, idPaciente)
+      .query(`
+        SELECT
+          v.NUMEROVISITA AS NumeroVisita,
+          CONVERT(VARCHAR(10), v.FECHAADMISIONS, 23) AS FechaAdmision,
+          v.FechaEgreso AS FechaEgresoClarion
+        FROM dbo.imVisita v
+        WHERE v.IDPACIENTE = @ip
+        ORDER BY v.FECHAADMISIONS DESC, v.NUMEROVISITA DESC
+      `);
+    visitasPaciente = hermanas.recordset.map((x) => {
+      const d = x.FechaAdmision || null;
+      const e = toIsoDate(x.FechaEgresoClarion);
+      return { numeroVisita: Number(x.NumeroVisita), desde: d, hasta: e || hoy };
+    });
+  }
+
+  return {
+    documento,
+    desde,
+    hasta,
+    egresada: Boolean(egreso),
+    visitasPaciente
+  };
+}
+
 /** Variantes de PatchServidor que entienden los file servers (el PowerShell y el firmado resuelven el resto). */
 function rutasCandidatas(ruta) {
   const original = String(ruta || '').trim();
@@ -501,6 +561,7 @@ module.exports = {
   listarAdjuntos,
   obtenerAdjunto,
   abrirArchivoAdjunto,
+  contextoPacsVisita,
   rutasCandidatas,
   getPool,
   puedeLeer

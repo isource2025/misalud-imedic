@@ -226,7 +226,7 @@ function createMssqlRepos() {
   const empresas = {
     async listar() {
       const r = await (await req()).query(
-        'SELECT IdEmpresa, Habilitada, NombreVisible, SeccionesVisibles, TiposAdjuntoVisibles, DemoraPublicacionHoras, FileServerUrl FROM dbo.EmpresasPortal'
+        'SELECT IdEmpresa, Habilitada, NombreVisible, SeccionesVisibles, TiposAdjuntoVisibles, DemoraPublicacionHoras, FileServerUrl, PacsUrl FROM dbo.EmpresasPortal'
       );
       return r.recordset.map((x) => ({
         idEmpresa: x.IdEmpresa,
@@ -235,7 +235,8 @@ function createMssqlRepos() {
         seccionesVisibles: JSON.parse(x.SeccionesVisibles || '[]'),
         tiposAdjuntoVisibles: x.TiposAdjuntoVisibles ? JSON.parse(x.TiposAdjuntoVisibles) : null,
         demoraPublicacionHoras: x.DemoraPublicacionHoras,
-        fileServerUrl: x.FileServerUrl || null
+        fileServerUrl: x.FileServerUrl || null,
+        pacsUrl: x.PacsUrl || null
       }));
     }
   };
@@ -283,6 +284,90 @@ function createMssqlRepos() {
     }
   };
 
+  const enlaces = {
+    async crear(d) {
+      const r = await (await req())
+        .input('th', sql.Char(64), d.tokenHash)
+        .input('c', sql.BigInt, d.idCuenta)
+        .input('e', sql.Int, d.idEmpresa)
+        .input('v', sql.Int, d.numeroVisita)
+        .input('alc', sql.VarChar(30), d.alcance)
+        .input('rec', sql.NVarChar(500), d.recurso)
+        .input('meta', sql.NVarChar(500), d.meta)
+        .input('exp', sql.DateTime2(0), d.expiraEn)
+        .input('mu', sql.Int, d.maxUsos)
+        .query(`INSERT INTO dbo.EnlacesCompartidos
+          (TokenHash, IdCuenta, IdEmpresa, NumeroVisita, Alcance, Recurso, Meta, ExpiraEn, MaxUsos)
+          OUTPUT INSERTED.Id, INSERTED.CreadoEn
+          VALUES (@th, @c, @e, @v, @alc, @rec, @meta, @exp, @mu)`);
+      return {
+        id: Number(r.recordset[0].Id),
+        usos: 0,
+        revocado: false,
+        creadoEn: r.recordset[0].CreadoEn,
+        ...d
+      };
+    },
+    async porTokenHash(tokenHash) {
+      const r = await (await req())
+        .input('th', sql.Char(64), tokenHash)
+        .query(`SELECT Id, TokenHash, IdCuenta, IdEmpresa, NumeroVisita, Alcance, Recurso, Meta,
+                       ExpiraEn, MaxUsos, Usos, Revocado, CreadoEn
+                FROM dbo.EnlacesCompartidos WHERE TokenHash = @th`);
+      const x = r.recordset[0];
+      return x
+        ? {
+            id: Number(x.Id),
+            tokenHash: x.TokenHash,
+            idCuenta: Number(x.IdCuenta),
+            idEmpresa: x.IdEmpresa,
+            numeroVisita: x.NumeroVisita,
+            alcance: x.Alcance,
+            recurso: x.Recurso,
+            meta: x.Meta,
+            expiraEn: x.ExpiraEn,
+            maxUsos: x.MaxUsos == null ? null : Number(x.MaxUsos),
+            usos: Number(x.Usos),
+            revocado: Boolean(x.Revocado),
+            creadoEn: x.CreadoEn
+          }
+        : null;
+    },
+    async listarPorVisita(idCuenta, idEmpresa, numeroVisita) {
+      const r = await (await req())
+        .input('c', sql.BigInt, idCuenta)
+        .input('e', sql.Int, idEmpresa)
+        .input('v', sql.Int, numeroVisita)
+        .query(`SELECT TOP 50 Id, Alcance, Meta, ExpiraEn, MaxUsos, Usos, Revocado, CreadoEn
+                FROM dbo.EnlacesCompartidos
+                WHERE IdCuenta = @c AND IdEmpresa = @e AND NumeroVisita = @v
+                ORDER BY CreadoEn DESC`);
+      return r.recordset.map((x) => ({
+        id: Number(x.Id),
+        alcance: x.Alcance,
+        meta: x.Meta,
+        expiraEn: x.ExpiraEn,
+        maxUsos: x.MaxUsos == null ? null : Number(x.MaxUsos),
+        usos: Number(x.Usos),
+        revocado: Boolean(x.Revocado),
+        creadoEn: x.CreadoEn
+      }));
+    },
+    async revocar(idCuenta, id) {
+      const r = await (await req())
+        .input('c', sql.BigInt, idCuenta)
+        .input('id', sql.BigInt, id)
+        .query(`UPDATE dbo.EnlacesCompartidos SET Revocado = 1
+                WHERE Id = @id AND IdCuenta = @c AND Revocado = 0`);
+      return r.rowsAffected[0] > 0;
+    },
+    async registrarUso(id) {
+      await (await req())
+        .input('id', sql.BigInt, id)
+        .query('UPDATE dbo.EnlacesCompartidos SET Usos = Usos + 1 WHERE Id = @id');
+    }
+  };
+
   const auditoria = {
     async registrar({ idCuenta, accion, idEmpresa, recurso, ip, resultado }) {
       await (await req())
@@ -296,7 +381,7 @@ function createMssqlRepos() {
     }
   };
 
-  return { kind: 'mssql', cuentas, codigos, sesiones, vinculos, empresas, emails, auditoria };
+  return { kind: 'mssql', cuentas, codigos, sesiones, vinculos, empresas, emails, enlaces, auditoria };
 }
 
 module.exports = { createMssqlRepos };

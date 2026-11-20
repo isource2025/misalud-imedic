@@ -86,6 +86,7 @@ const PLANTILLAS = [
       { descripcion: 'Laboratorio de ingreso.pdf', tipoImagen: '1', tipoImagenNombre: 'Laboratorio', offsetDias: 0 },
       { descripcion: 'Foto de herida al alta.png', tipoImagen: '9', tipoImagenNombre: 'Fotografía', offsetDias: 3 }
     ],
+    pacs: [{ modality: 'CT', description: 'TAC de abdomen', seriesCount: 2, instanceCount: 4, offsetDias: 0 }],
     epicrisis: {
       texto:
         'Paciente de 41 años que ingresa por cuadro de abdomen agudo compatible con apendicitis. Se realiza apendicectomía laparoscópica sin complicaciones. Evoluciona favorablemente, afebril, con buena tolerancia oral y herida sin signos de infección. Se otorga el alta con analgesia por vía oral, control por consultorio externo de cirugía a los 7 días y pautas de alarma.',
@@ -104,6 +105,7 @@ const PLANTILLAS = [
     diagnostico: { codigo: 'J18.9', descripcion: 'Neumonía, no especificada' },
     diagnosticoEgreso: { codigo: 'J18.9', descripcion: 'Neumonía, no especificada' },
     adjuntos: [{ descripcion: 'Radiografía de tórax.png', tipoImagen: '2', tipoImagenNombre: 'Radiografía', offsetDias: 0 }],
+    pacs: [{ modality: 'CT', description: 'TAC de tórax', seriesCount: 1, instanceCount: 3, offsetDias: 1 }],
     hcIngreso: {
       motivoConsulta: 'Fiebre, tos productiva y dificultad para respirar de 4 días de evolución.',
       enfermedadActual:
@@ -190,7 +192,21 @@ function sembrarVisitas(idPacientePorEmpresa) {
         fecha: `${isoDias(p.offsetDias + a.offsetDias)}T10:15:00`,
         tipoImagen: a.tipoImagen,
         tipoImagenNombre: a.tipoImagenNombre
-      }))
+      })),
+      pacs: (p.pacs || []).map((s, i) => {
+        const studyDate = isoDias(p.offsetDias + (s.offsetDias || 0)).replace(/-/g, '');
+        const uid = `1.2.826.0.1.3680043.8.498.mock.${p.empresa}.${nextVisita[p.empresa]}.${i + 1}`;
+        return {
+          studyInstanceUid: uid,
+          studyDate,
+          studyTime: '101500',
+          studyDescription: s.description,
+          modalitiesInStudy: s.modality,
+          accessionNumber: String(nextVisita[p.empresa]),
+          numberOfStudyRelatedSeries: s.seriesCount || 1,
+          numberOfStudyRelatedInstances: s.instanceCount || 2
+        };
+      })
     });
   }
 }
@@ -219,7 +235,8 @@ visitas[GUEMES].push({
     }
   ],
   epicrisis: [],
-  adjuntos: []
+  adjuntos: [],
+  pacs: []
 });
 
 let nextPaciente = 9000;
@@ -250,7 +267,7 @@ function verificarDisponible(idEmpresa) {
   return demora();
 }
 
-const sinDetalle = ({ hcIngreso, epicrisis, diagnosticoEgreso, idPaciente, adjuntos, ...v }) => ({
+const sinDetalle = ({ hcIngreso, epicrisis, diagnosticoEgreso, idPaciente, adjuntos, pacs, ...v }) => ({
   ...v,
   tieneHcIngreso: hcIngreso.length > 0,
   tieneEpicrisis: epicrisis.length > 0,
@@ -259,6 +276,64 @@ const sinDetalle = ({ hcIngreso, epicrisis, diagnosticoEgreso, idPaciente, adjun
 
 const visitaDe = (idEmpresa, numeroVisita, idsPaciente) =>
   (visitas[idEmpresa] || []).find((x) => x.numeroVisita === numeroVisita && idsPaciente.includes(x.idPaciente));
+
+/** DICOM Implicit VR Little Endian mínimo (8-bit MONOCHROME2) para el visor mock. */
+function dicomMock({ rows = 64, cols = 64, instanceNumber = 1 } = {}) {
+  const pixels = Buffer.alloc(rows * cols);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const r = Math.hypot(x - cols / 2, y - rows / 2) / (cols / 2);
+      pixels[y * cols + x] = Math.max(0, Math.min(255, Math.round(220 - 180 * r)));
+    }
+  }
+  const enc = (tag, vr, value) => {
+    const buf = Buffer.alloc(8 + value.length);
+    buf.writeUInt16LE((tag >>> 16) & 0xffff, 0);
+    buf.writeUInt16LE(tag & 0xffff, 2);
+    buf.write(vr, 4, 2, 'ascii');
+    buf.writeUInt16LE(value.length, 6);
+    value.copy(buf, 8);
+    return buf;
+  };
+  const encOb = (tag, value) => {
+    const buf = Buffer.alloc(12 + value.length);
+    buf.writeUInt16LE((tag >>> 16) & 0xffff, 0);
+    buf.writeUInt16LE(tag & 0xffff, 2);
+    buf.write('OB', 4, 2, 'ascii');
+    buf.writeUInt16LE(0, 6);
+    buf.writeUInt32LE(value.length, 8);
+    value.copy(buf, 12);
+    return buf;
+  };
+  const ui = (s) => Buffer.from(String(s), 'ascii');
+  const sh = (s) => {
+    const b = Buffer.from(String(s), 'ascii');
+    return b.length % 2 ? Buffer.concat([b, Buffer.from([0x20])]) : b;
+  };
+  const us = (n) => {
+    const b = Buffer.alloc(2);
+    b.writeUInt16LE(n);
+    return b;
+  };
+  const body = Buffer.concat([
+    enc(0x00080016, 'UI', ui('1.2.840.10008.5.1.4.1.1.2')),
+    enc(0x00080018, 'UI', ui(`1.2.826.0.1.3680043.8.498.inst.${instanceNumber}`)),
+    enc(0x00080060, 'CS', sh('CT')),
+    enc(0x00080070, 'LO', sh('MiSaludMock')),
+    enc(0x00200013, 'IS', sh(String(instanceNumber))),
+    enc(0x00280002, 'US', us(1)),
+    enc(0x00280004, 'CS', sh('MONOCHROME2')),
+    enc(0x00280010, 'US', us(rows)),
+    enc(0x00280011, 'US', us(cols)),
+    enc(0x00280100, 'US', us(8)),
+    enc(0x00280101, 'US', us(8)),
+    enc(0x00280102, 'US', us(7)),
+    enc(0x00280103, 'US', us(0)),
+    encOb(0x7fe00010, pixels)
+  ]);
+  const preamble = Buffer.alloc(128);
+  return Buffer.concat([preamble, Buffer.from('DICM', 'ascii'), body]);
+}
 
 function pdfMock(titulo) {
   const texto = String(titulo).replace(/[()\\]/g, '');
@@ -361,9 +436,92 @@ module.exports = {
     const cuerpo = esPng ? pngMock() : pdfMock(nombre.replace(/\.[^.]+$/, ''));
     return new Response(cuerpo, { status: 200, headers: { 'content-type': esPng ? 'image/png' : 'application/pdf' } });
   },
+  async contextoPacsVisita(idEmpresa, numeroVisita, idsPaciente) {
+    await verificarDisponible(idEmpresa);
+    const v = visitaDe(idEmpresa, numeroVisita, idsPaciente);
+    if (!v) return null;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const paciente = (padron[idEmpresa] || []).find((p) => p.idPaciente === v.idPaciente);
+    const documento = String(paciente?.dni || '').replace(/\D/g, '');
+    const hermanas = (visitas[idEmpresa] || [])
+      .filter((x) => x.idPaciente === v.idPaciente)
+      .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso) || b.numeroVisita - a.numeroVisita)
+      .map((x) => ({
+        numeroVisita: x.numeroVisita,
+        desde: x.fechaIngreso,
+        hasta: x.fechaEgreso || hoy
+      }));
+    return {
+      documento,
+      desde: v.fechaIngreso,
+      hasta: v.fechaEgreso || hoy,
+      egresada: Boolean(v.fechaEgreso),
+      visitasPaciente: hermanas
+    };
+  },
+  async listarEstudiosPacsMock(idEmpresa, ctx) {
+    await verificarDisponible(idEmpresa);
+    const paciente = (padron[idEmpresa] || []).find((p) => String(p.dni).replace(/\D/g, '') === ctx.documento);
+    if (!paciente) return [];
+    return (visitas[idEmpresa] || [])
+      .filter((v) => v.idPaciente === paciente.idPaciente)
+      .flatMap((v) => v.pacs || [])
+      .map((s) => ({ ...s }));
+  },
+  async listarSeriesPacsMock(uid) {
+    const estudio = Object.values(visitas)
+      .flat()
+      .flatMap((v) => v.pacs || [])
+      .find((s) => s.studyInstanceUid === uid);
+    const n = Number(estudio?.numberOfStudyRelatedSeries || 1);
+    return Array.from({ length: n }, (_, i) => ({
+      seriesInstanceUid: `${uid}.s${i + 1}`,
+      seriesNumber: i + 1,
+      modality: estudio?.modalitiesInStudy || 'CT',
+      seriesDescription: i === 0 ? 'Axial' : `Serie ${i + 1}`,
+      numberOfSeriesRelatedInstances: Number(estudio?.numberOfStudyRelatedInstances || 2)
+    }));
+  },
+  async listarArchivosPacsMock(uid) {
+    const estudio = Object.values(visitas)
+      .flat()
+      .flatMap((v) => v.pacs || [])
+      .find((s) => s.studyInstanceUid === uid);
+    const n = Number(estudio?.numberOfStudyRelatedInstances || 2);
+    const seriesUid = `${uid}.s1`;
+    return Array.from({ length: n }, (_, i) => ({
+      path: `${uid}/IMG${String(i + 1).padStart(4, '0')}.dcm`,
+      name: `IMG${String(i + 1).padStart(4, '0')}.dcm`,
+      size: 4096 + i * 128,
+      seriesInstanceUid: seriesUid
+    }));
+  },
+  async abrirArchivoPacsMock(uid, pathRel) {
+    const m = String(pathRel).match(/IMG(\d+)/i);
+    const n = m ? Number(m[1]) : 1;
+    const cuerpo = dicomMock({ instanceNumber: n });
+    return new Response(cuerpo, {
+      status: 200,
+      headers: { 'content-type': 'application/dicom', 'content-length': String(cuerpo.length) }
+    });
+  },
   asegurarPaciente,
   EMPRESAS_MOCK: [
-    { idEmpresa: GUEMES, habilitada: true, nombreVisible: 'Sanatorio Güemes', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'], demoraPublicacionHoras: 0 },
-    { idEmpresa: SARMIENTO, habilitada: true, nombreVisible: 'Sanatorio Sarmiento', seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos'], demoraPublicacionHoras: 0 }
+    {
+      idEmpresa: GUEMES,
+      habilitada: true,
+      nombreVisible: 'Sanatorio Güemes',
+      seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos', 'pacs'],
+      demoraPublicacionHoras: 0,
+      pacsUrl: 'https://pacs-mock-guemes.imedic.com.ar'
+    },
+    {
+      idEmpresa: SARMIENTO,
+      habilitada: true,
+      nombreVisible: 'Sanatorio Sarmiento',
+      seccionesVisibles: ['resumen', 'hcIngreso', 'diagnostico', 'epicrisis', 'adjuntos', 'pacs'],
+      demoraPublicacionHoras: 0,
+      pacsUrl: 'https://pacs-sarmiento.imedic.com.ar'
+    }
   ]
 };

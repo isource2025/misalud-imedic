@@ -27,6 +27,9 @@ function createApp() {
     res.json({ ok: true, servicio: 'misalud-backend', mock: config.MOCK_MODE, email: emailEngine.getStatus().ready ? 'listo' : 'no_listo' })
   );
 
+  // Links temporales: GET públicos (sin sesión). CSRF no aplica a GET.
+  app.use('/api/c', require('./routes/compartir.public.routes'));
+
   app.use('/api', csrfProtection);
   app.use('/api/auth', require('./routes/auth.routes'));
   app.use('/api', require('./routes/clinico.routes'));

@@ -65,5 +65,11 @@ module.exports = {
     tipo: z.enum(['ambulatorio', 'internacion', 'hospital_dia']).optional(),
     desde: fechaIso.optional(),
     hasta: fechaIso.optional()
+  }),
+  compartir: z.object({
+    alcance: z.enum(['pacs_estudio', 'adjunto', 'pdf_atencion']),
+    recursoId: z.string().min(8).max(800).optional(),
+    horas: z.coerce.number().int().min(1).max(168).optional(),
+    maxUsos: z.coerce.number().int().min(1).max(50).nullable().optional()
   })
 };
