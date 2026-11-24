@@ -20,6 +20,7 @@ const cspPaginas = [
   `connect-src 'self'${isDev ? " ws:" : ""}`,
   "frame-src 'self' blob:",
   "object-src 'self' blob:",
+  "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -1,11 +1,12 @@
 "use client";
 
 import clsx from "clsx";
-import { Download, Eye, FileText, Link2, Paperclip, Scan } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Download, Eye, FileText, Link2, Loader2, Paperclip, Scan } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PacsSerieViewer } from "@/components/portal/PacsSerieViewer";
 import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
+import { ArchivoViewer } from "@/components/visor/ArchivoViewer";
 import { filtrarArchivosDeSerie, seriePrincipal } from "@/lib/pacsSeries";
 import type { PacsArchivo, PacsSerie } from "@/lib/types";
 
@@ -36,10 +37,6 @@ function IconoTipo({ tipo }: { tipo: string }) {
   return <FileText className="size-6" />;
 }
 
-function esImagenMime(mime: string) {
-  return /^image\//i.test(mime);
-}
-
 function nombreDescarga(meta: Meta) {
   if (meta.tipo === "pdf_atencion") return "historia-clinica.pdf";
   const m = meta.meta.match(/Adjunto · (.+)$/);
@@ -66,10 +63,10 @@ export function CompartidoClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [viendo, setViendo] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [blobMime, setBlobMime] = useState("");
-  const [cargandoArchivo, setCargandoArchivo] = useState(false);
+  const [visorTicket, setVisorTicket] = useState(0);
+  const [abriendoVer, setAbriendoVer] = useState(false);
   const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
+  const visorRef = useRef<HTMLDivElement>(null);
 
   const contenidoUrl = `/api/c/${encodeURIComponent(token)}/contenido`;
 
@@ -83,6 +80,7 @@ export function CompartidoClient({ token }: { token: string }) {
         if (cancel) return;
         setMeta(body as Meta);
         if (body.tipo === "pacs_estudio") {
+          setAbriendoVer(true);
           const c = await fetch(contenidoUrl, { credentials: "same-origin", cache: "no-store" });
           const cb = await c.json().catch(() => ({}));
           if (!c.ok) throw new Error(cb?.error?.message || "No pudimos cargar el estudio.");
@@ -93,12 +91,17 @@ export function CompartidoClient({ token }: { token: string }) {
           setSerieActiva(principal?.id || data.series?.[0]?.id || null);
           setViendo(true);
         } else if (body.tipo === "pdf_atencion" || body.tipo === "adjunto") {
+          setAbriendoVer(true);
           setViendo(true);
+          setVisorTicket((t) => t + 1);
         }
       } catch (err) {
         if (!cancel) setError(err instanceof Error ? err.message : "No pudimos abrir el link.");
       } finally {
-        if (!cancel) setCargando(false);
+        if (!cancel) {
+          setCargando(false);
+          setAbriendoVer(false);
+        }
       }
     })();
     return () => {
@@ -106,42 +109,17 @@ export function CompartidoClient({ token }: { token: string }) {
     };
   }, [token, contenidoUrl]);
 
-  // PDF/adjunto: bajar como blob (evita frame-ancestors / X-Frame-Options del rewrite).
-  useEffect(() => {
-    if (!meta || !viendo) return;
-    if (meta.tipo !== "pdf_atencion" && meta.tipo !== "adjunto") return;
-
-    let cancel = false;
-    let objectUrl: string | null = null;
-    setCargandoArchivo(true);
+  function abrirVer() {
     setErrorArchivo(null);
-
-    (async () => {
-      try {
-        const res = await fetch(contenidoUrl, { credentials: "same-origin", cache: "no-store" });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error?.message || `No pudimos abrir el archivo (HTTP ${res.status}).`);
-        }
-        const mime = res.headers.get("content-type") || "application/octet-stream";
-        const buf = await res.blob();
-        if (cancel) return;
-        objectUrl = URL.createObjectURL(buf);
-        setBlobMime(mime);
-        setBlobUrl(objectUrl);
-      } catch (err) {
-        if (!cancel) setErrorArchivo(err instanceof Error ? err.message : "No pudimos cargar el archivo.");
-      } finally {
-        if (!cancel) setCargandoArchivo(false);
-      }
-    })();
-
-    return () => {
-      cancel = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      setBlobUrl(null);
-    };
-  }, [meta, viendo, contenidoUrl]);
+    setAbriendoVer(true);
+    setViendo(true);
+    setVisorTicket((t) => t + 1);
+    requestAnimationFrame(() => {
+      visorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      // El loader real vive dentro de ArchivoViewer; este flag solo marca el click.
+      window.setTimeout(() => setAbriendoVer(false), 350);
+    });
+  }
 
   async function descargar() {
     if (!meta) return;
@@ -172,7 +150,6 @@ export function CompartidoClient({ token }: { token: string }) {
   const serieMeta = pacs?.series?.find((s) => s.id === serieActiva) || null;
   const archivosVisor = pacs?.series?.length ? archivosSerie : pacs?.archivos || [];
   const tipoLabel = meta ? tipoLabelDe(meta.tipo, meta.tipoLabel) : "";
-  const esImagen = esImagenMime(blobMime);
 
   return (
     <main className="mx-auto min-h-dvh max-w-4xl px-5 py-10">
@@ -212,11 +189,12 @@ export function CompartidoClient({ token }: { token: string }) {
               <div className="mt-5 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setViendo(true)}
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 text-sm font-semibold text-white transition hover:bg-brand-700 sm:flex-none"
+                  onClick={abrirVer}
+                  disabled={abriendoVer}
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-70 sm:flex-none"
                 >
-                  <Eye className="size-4" />
-                  Ver
+                  {abriendoVer ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
+                  {abriendoVer ? "Abriendo…" : "Ver"}
                 </button>
                 <button
                   type="button"
@@ -233,19 +211,8 @@ export function CompartidoClient({ token }: { token: string }) {
           {errorArchivo && <Alert tone="error">{errorArchivo}</Alert>}
 
           {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && viendo && (
-            <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-soft">
-              {cargandoArchivo && (
-                <Cargando>
-                  <Skeleton className="h-[min(80vh,900px)] w-full" />
-                </Cargando>
-              )}
-              {!cargandoArchivo && blobUrl && esImagen && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={blobUrl} alt={meta.meta} className="mx-auto max-h-[80vh] w-full object-contain" />
-              )}
-              {!cargandoArchivo && blobUrl && !esImagen && (
-                <iframe title={`Vista de ${meta.meta}`} src={blobUrl} className="h-[min(80vh,900px)] w-full border-0 bg-slate-50" />
-              )}
+            <div ref={visorRef}>
+              <ArchivoViewer src={contenidoUrl} titulo={meta.meta} ticket={visorTicket} onDescargar={() => void descargar()} />
             </div>
           )}
 
