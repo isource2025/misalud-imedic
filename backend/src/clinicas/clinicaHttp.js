@@ -3,8 +3,8 @@
 // ../lib/signedFileToken.js es copia textual de iMedicSaaSBack src/utils/signedFileToken.js: no editarla acá;
 // cualquier cambio se hace allá (y en los instaladores PowerShell) y se vuelve a copiar.
 // Claves (las mismas de iMedic SaaS): FILE_SERVER_SIGNING_KEYS / PACS_SIGNING_KEYS ({"101":"clave"}) o la
-// derivada de IMEDIC_SIGNING_MASTER. A diferencia de iMedic, el portal no manda el token fijo viejo
-// (x-imedic-token).
+// derivada de IMEDIC_SIGNING_MASTER. El bridge PACS de Sarmiento todavía acepta la clave legada
+// PACS_BRIDGE_KEY (headers x-imedic-pacs-key / x-imedic-token), igual que iMedic SaaS.
 // Transición: los file servers instalados hoy (PowerShell ps1-unc, auth "tunnel") no validan nada e ignoran la
 // firma. Mientras una clínica no tenga clave, el pedido sale sin firma; con FILE_SERVER_EXIGIR_FIRMA=true (o
 // PACS_EXIGIR_FIRMA) se corta antes de salir. Cuando todas las clínicas corran el file server firmado, activarlo.
@@ -17,16 +17,30 @@ const { obtenerHabilitada } = require('./empresas');
 const EXIGIR_FIRMA_ENV = { fs: 'FILE_SERVER_EXIGIR_FIRMA', pacs: 'PACS_EXIGIR_FIRMA' };
 const avisadasSinClave = new Set();
 
+function tokenLegadoPacs() {
+  return String(process.env.PACS_BRIDGE_KEY || process.env.PACS_BRIDGE_TOKEN || '').trim();
+}
+
 function headersDePedido({ servicio, idEmpresa, method, url }) {
+  const headers = {};
+  // Misma transición que iMedic: el bridge PS1 de Sarmiento autentica con la clave compartida.
+  if (servicio === 'pacs') {
+    const legado = tokenLegadoPacs();
+    if (legado) {
+      headers['x-imedic-pacs-key'] = legado;
+      headers['x-imedic-token'] = legado;
+    }
+  }
   if (signed.clinicKeyFor(servicio, idEmpresa) || /^(1|true)$/i.test(process.env[EXIGIR_FIRMA_ENV[servicio]] || '')) {
-    return firmarPedido({ servicio, idEmpresa, method, url });
+    Object.assign(headers, firmarPedido({ servicio, idEmpresa, method, url }));
+    return headers;
   }
   const k = `${servicio}:${idEmpresa}`;
-  if (!avisadasSinClave.has(k)) {
+  if (!avisadasSinClave.has(k) && !(servicio === 'pacs' && tokenLegadoPacs())) {
     avisadasSinClave.add(k);
     logger.warn('clinica_pedido_sin_firma', { servicio, idEmpresa: Number(idEmpresa) });
   }
-  return {};
+  return headers;
 }
 
 const SERVICIOS = {
