@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Download, Eye, File, FileImage, FileText, Film, Paperclip, RotateCw, ScanLine } from "lucide-react";
+import { Download, Eye, File, FileImage, FileText, Film, RotateCw, ScanLine } from "lucide-react";
 import { useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
