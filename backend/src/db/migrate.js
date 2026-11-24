@@ -13,12 +13,35 @@ const splitBatches = (text) =>
     .map((b) => b.trim())
     .filter(Boolean);
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** En pre-deploy de Railway MSSQL a veces tarda unos segundos en aceptar TCP. */
+async function poolConReintento(intentos = 8) {
+  let espera = 1500;
+  let ultimo;
+  for (let i = 1; i <= intentos; i++) {
+    try {
+      return await getPortalPool();
+    } catch (err) {
+      ultimo = err;
+      console.warn(`MSSQL no lista (intento ${i}/${intentos}): ${err.message}`);
+      await closePortalPool().catch(() => {});
+      if (i === intentos) break;
+      await sleep(espera);
+      espera = Math.min(espera * 1.5, 10_000);
+    }
+  }
+  throw ultimo;
+}
+
 async function migrate() {
   if (config.MOCK_MODE) {
     console.log('MOCK_MODE=true: no hay base para migrar (se usa almacenamiento en memoria).');
     return;
   }
-  const pool = await getPortalPool();
+  const pool = await poolConReintento();
   await pool.request().batch(`
     IF OBJECT_ID('dbo.SchemaMigraciones') IS NULL
       CREATE TABLE dbo.SchemaMigraciones (
