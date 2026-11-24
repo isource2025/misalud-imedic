@@ -86,7 +86,18 @@ test('crea link temporal de PDF y lo abre sin sesión', async () => {
     });
   assert.equal(contenido.status, 200);
   assert.match(contenido.headers['content-type'], /pdf/);
-  assert.match(String(contenido.headers['content-disposition'] || ''), /attachment/);
+  assert.match(String(contenido.headers['content-disposition'] || ''), /inline/);
+
+  const descarga = await request(app)
+    .get(`/api/c/${token}/contenido?dl=1`)
+    .buffer(true)
+    .parse((res, cb) => {
+      const partes = [];
+      res.on('data', (d) => partes.push(d));
+      res.on('end', () => cb(null, Buffer.concat(partes)));
+    });
+  assert.equal(descarga.status, 200);
+  assert.match(String(descarga.headers['content-disposition'] || ''), /attachment/);
 });
 
 test('comparte un estudio PACS con link temporal', async () => {

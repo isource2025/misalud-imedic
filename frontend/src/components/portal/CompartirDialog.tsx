@@ -65,7 +65,9 @@ export function CompartirDialog({ idAtencion, alcance, recursoId, titulo, onCerr
             <p id="compartir-titulo" className="flex items-center gap-2 text-[15px] font-semibold">
               <Link2 className="size-4 text-brand-600" /> Compartir con link temporal
             </p>
-            <p className="mt-1 text-sm text-slate-500">{titulo}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Vas a compartir: <span className="font-semibold text-ink">{titulo}</span>
+            </p>
           </div>
           <button onClick={onCerrar} aria-label="Cerrar" className="rounded-xl p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700">
             <X className="size-5" />

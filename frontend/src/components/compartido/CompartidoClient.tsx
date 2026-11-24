@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Download, Link2, Scan } from "lucide-react";
+import { Download, Eye, FileText, Link2, Paperclip, Scan } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PacsSerieViewer } from "@/components/portal/PacsSerieViewer";
 import { Alert } from "@/components/ui/Alert";
@@ -9,12 +9,36 @@ import { Skeleton, Cargando } from "@/components/ui/Skeleton";
 import { filtrarArchivosDeSerie, seriePrincipal } from "@/lib/pacsSeries";
 import type { PacsArchivo, PacsSerie } from "@/lib/types";
 
-type Meta = { tipo: string; meta: string; expiraEn: string; tieneArchivo: boolean };
+type Meta = {
+  tipo: string;
+  tipoLabel?: string;
+  meta: string;
+  expiraEn: string;
+  tieneArchivo: boolean;
+};
 type PacsContenido = {
   meta: string;
   series: PacsSerie[];
   archivos: PacsArchivo[];
 };
+
+function tipoLabelDe(tipo: string, fallback?: string) {
+  if (fallback) return fallback;
+  if (tipo === "pdf_atencion") return "Historia clínica (PDF)";
+  if (tipo === "pacs_estudio") return "Estudio de imágenes";
+  if (tipo === "adjunto") return "Adjunto";
+  return "Recurso compartido";
+}
+
+function IconoTipo({ tipo }: { tipo: string }) {
+  if (tipo === "pacs_estudio") return <Scan className="size-6" />;
+  if (tipo === "adjunto") return <Paperclip className="size-6" />;
+  return <FileText className="size-6" />;
+}
+
+function esImagenNombre(nombre: string) {
+  return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nombre);
+}
 
 export function CompartidoSkeleton() {
   return (
@@ -35,6 +59,10 @@ export function CompartidoClient({ token }: { token: string }) {
   const [serieActiva, setSerieActiva] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [viendo, setViendo] = useState(false);
+
+  const contenidoUrl = `/api/c/${encodeURIComponent(token)}/contenido`;
+  const descargarUrl = `${contenidoUrl}?dl=1`;
 
   useEffect(() => {
     let cancel = false;
@@ -46,7 +74,7 @@ export function CompartidoClient({ token }: { token: string }) {
         if (cancel) return;
         setMeta(body as Meta);
         if (body.tipo === "pacs_estudio") {
-          const c = await fetch(`/api/c/${encodeURIComponent(token)}/contenido`, { credentials: "same-origin", cache: "no-store" });
+          const c = await fetch(contenidoUrl, { credentials: "same-origin", cache: "no-store" });
           const cb = await c.json().catch(() => ({}));
           if (!c.ok) throw new Error(cb?.error?.message || "No pudimos cargar el estudio.");
           if (cancel) return;
@@ -54,6 +82,10 @@ export function CompartidoClient({ token }: { token: string }) {
           setPacs(data);
           const principal = seriePrincipal(data.series || [], data.archivos || []);
           setSerieActiva(principal?.id || data.series?.[0]?.id || null);
+          setViendo(true);
+        } else if (body.tipo === "pdf_atencion" || body.tipo === "adjunto") {
+          // PDF / adjunto: mostrar vista al abrir el link.
+          setViendo(true);
         }
       } catch (err) {
         if (!cancel) setError(err instanceof Error ? err.message : "No pudimos abrir el link.");
@@ -64,7 +96,7 @@ export function CompartidoClient({ token }: { token: string }) {
     return () => {
       cancel = true;
     };
-  }, [token]);
+  }, [token, contenidoUrl]);
 
   const archivosSerie = useMemo(
     () => filtrarArchivosDeSerie(pacs?.archivos || [], serieActiva),
@@ -73,6 +105,8 @@ export function CompartidoClient({ token }: { token: string }) {
 
   const serieMeta = pacs?.series?.find((s) => s.id === serieActiva) || null;
   const archivosVisor = pacs?.series?.length ? archivosSerie : pacs?.archivos || [];
+  const tipoLabel = meta ? tipoLabelDe(meta.tipo, meta.tipoLabel) : "";
+  const adjuntoEsImagen = meta?.tipo === "adjunto" && esImagenNombre(meta.meta);
 
   return (
     <main className="mx-auto min-h-dvh max-w-4xl px-5 py-10">
@@ -96,31 +130,62 @@ export function CompartidoClient({ token }: { token: string }) {
         <div className="mt-8 space-y-5">
           <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
             <div className="flex items-start gap-4">
-              <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
-                <Scan className="size-6" />
+              <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+                <IconoTipo tipo={meta.tipo} />
               </span>
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight">{meta.meta}</h1>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">{tipoLabel}</p>
+                <h1 className="mt-1 text-xl font-semibold tracking-tight">{meta.meta}</h1>
                 <p className="mt-1 text-sm text-slate-500">
                   Disponible hasta {new Date(meta.expiraEn).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })}
                 </p>
               </div>
             </div>
+
+            {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViendo(true)}
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 text-sm font-semibold text-white transition hover:bg-brand-700 sm:flex-none"
+                >
+                  <Eye className="size-4" />
+                  Ver
+                </button>
+                <a
+                  href={descargarUrl}
+                  download={meta.tipo === "pdf_atencion" ? "historia.pdf" : undefined}
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-200 sm:flex-none"
+                >
+                  <Download className="size-4" />
+                  Descargar
+                </a>
+              </div>
+            )}
           </div>
 
-          {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && (
-            <a
-              href={`/api/c/${encodeURIComponent(token)}/contenido`}
-              download={meta.tipo === "pdf_atencion" ? "historia.pdf" : undefined}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-semibold text-white transition hover:bg-brand-700"
-            >
-              <Download className="size-4" />
-              {meta.tipo === "pdf_atencion" ? "Descargar PDF" : "Descargar archivo"}
-            </a>
+          {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && viendo && (
+            <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-soft">
+              {meta.tipo === "adjunto" && adjuntoEsImagen ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={contenidoUrl} alt={meta.meta} className="mx-auto max-h-[80vh] w-full object-contain" />
+              ) : (
+                <iframe
+                  title={`Vista de ${meta.meta}`}
+                  src={contenidoUrl}
+                  className="h-[min(80vh,900px)] w-full border-0 bg-slate-50"
+                />
+              )}
+            </div>
           )}
 
           {meta.tipo === "pacs_estudio" && pacs && (
             <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-soft sm:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand-50 px-3 text-xs font-semibold text-brand-700">
+                  <Eye className="size-3.5" /> Ver estudio
+                </span>
+              </div>
               {pacs.series?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {pacs.series.map((s) => {

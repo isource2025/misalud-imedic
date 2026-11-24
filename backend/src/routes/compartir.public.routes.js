@@ -24,8 +24,11 @@ router.get(
       recurso: `visita:${link.numeroVisita}`,
       resultado: 'ok'
     });
+    const tipoLabel =
+      link.tipo === 'pdf_atencion' ? 'Historia clínica (PDF)' : link.tipo === 'pacs_estudio' ? 'Estudio de imágenes' : 'Adjunto';
     res.set('Cache-Control', 'no-store').json({
       tipo: link.tipo,
+      tipoLabel,
       meta: link.meta,
       expiraEn: link.expiraEn,
       tieneArchivo: true
@@ -40,21 +43,21 @@ router.get(
     const link = await compartir.resolverPublico(req.params.token);
     const cuenta = await compartir.cuentaDeEnlace(link.cuentaId);
     await compartir.consumirUso(link.id);
+    const descargar = String(req.query.dl || '') === '1';
 
     if (link.tipo === 'pdf_atencion') {
       const { buffer, nombre, _ref } = await pdfHistoria.generarBuffer(cuenta, link.idAtencion);
       auditar(req, { accion: 'enlace_pdf', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
-      // attachment: el botón del link compartido es "Descargar", no vista previa.
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${nombre}"`,
+        'Content-Disposition': `${descargar ? 'attachment' : 'inline'}; filename="${nombre}"`,
         'Cache-Control': 'private, no-store'
       });
       return res.send(buffer);
     }
 
     if (link.tipo === 'adjunto') {
-      const abierto = await adjuntos.abrir(cuenta, link.idAdjunto, { descargar: true });
+      const abierto = await adjuntos.abrir(cuenta, link.idAdjunto, { descargar });
       const { res: origen, headers, _ref } = abierto;
       auditar(req, {
         accion: 'enlace_adjunto',

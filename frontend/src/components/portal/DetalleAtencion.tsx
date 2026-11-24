@@ -147,7 +147,11 @@ export function DetalleAtencion({ id }: { id: string }) {
   }
 
   function compartirEstudio(e: PacsEstudio) {
-    setCompartir({ alcance: "pacs_estudio", recursoId: e.id, titulo: e.descripcion });
+    setCompartir({
+      alcance: "pacs_estudio",
+      recursoId: e.id,
+      titulo: `Estudio de imágenes · ${e.descripcion || "Sin descripción"}`,
+    });
   }
 
   return (
@@ -196,7 +200,12 @@ export function DetalleAtencion({ id }: { id: string }) {
             <Download className="size-4" /> Exportar PDF
           </button>
           <button
-            onClick={() => setCompartir({ alcance: "pdf_atencion", titulo: `Historia · ${a.servicio || a.tipoLabel}` })}
+            onClick={() =>
+              setCompartir({
+                alcance: "pdf_atencion",
+                titulo: `Historia clínica · ${a.servicio || a.tipoLabel} · ${a.fechaIngreso}`,
+              })
+            }
             className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-slate-50 px-3.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
           >
             <Link2 className="size-4" /> Compartir historia

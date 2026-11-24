@@ -11,6 +11,8 @@ const csp = [
   "media-src 'self' blob:",
   "font-src 'self'",
   `connect-src 'self'${isDev ? " ws:" : ""}`,
+  "frame-src 'self'",
+  "object-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

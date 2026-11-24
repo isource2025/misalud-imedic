@@ -29,10 +29,12 @@ async function crear(cuenta, idAtencion, body = {}) {
   const { _ref } = det;
 
   let recurso = null;
-  let meta = `${det.clinica.nombre} · ${det.tipoLabel}`;
+  const clinica = det.clinica?.nombre || 'Clínica';
+  let meta = `${clinica} · ${det.tipoLabel}`;
 
   if (alcance === 'pdf_atencion') {
-    meta = `Historia clínica · ${det.fechaIngreso}`;
+    const servicio = det.servicio || det.tipoLabel || 'Atención';
+    meta = `Historia clínica · ${servicio} · ${det.fechaIngreso}`;
   } else if (alcance === 'pacs_estudio') {
     const idEst = String(body.recursoId || '');
     const ref = openId(idEst);
@@ -44,7 +46,7 @@ async function crear(cuenta, idAtencion, body = {}) {
     const est = lista.estudios.find((e) => openId(e.id)?.u === ref.u);
     if (!est) throw notFound('Estudio no encontrado');
     recurso = idEst;
-    meta = est.descripcion || 'Estudio de imágenes';
+    meta = `Estudio de imágenes · ${est.descripcion || 'Sin descripción'}`;
   } else if (alcance === 'adjunto') {
     const idAdj = String(body.recursoId || '');
     const ref = openId(idAdj);
@@ -55,7 +57,7 @@ async function crear(cuenta, idAtencion, body = {}) {
     const a = lista.adjuntos.find((x) => openId(x.id)?.a === ref.a);
     if (!a) throw notFound('Adjunto no encontrado');
     recurso = idAdj;
-    meta = a.nombre;
+    meta = `Adjunto · ${a.nombre}`;
   }
 
   const token = randomToken(24);
