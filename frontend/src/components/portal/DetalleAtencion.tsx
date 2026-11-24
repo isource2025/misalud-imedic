@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Building2, CalendarDays, ClipboardList, Download, FileText, Link2, Paperclip, Scan, Stethoscope, UserRound } from "lucide-react";
+import { ArrowLeft, Building2, CalendarDays, ClipboardList, Download, FileText, Link2, Paperclip, Stethoscope, UserRound } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdjuntosPanel } from "./AdjuntosPanel";
 import { CompartirDialog } from "./CompartirDialog";
@@ -17,7 +17,7 @@ import { duracionDias, fechaLarga } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 import type { AdjuntosResponse, AtencionDetalle, Diagnostico, PacsEstudio, PacsResponse } from "@/lib/types";
 
-type Tab = "resumen" | "hc" | "diagnostico" | "epicrisis" | "adjuntos" | "pacs";
+type Tab = "resumen" | "hc" | "diagnostico" | "epicrisis" | "adjuntos";
 type CompartirEstado = { alcance: "pacs_estudio" | "pdf_atencion"; recursoId?: string; titulo: string } | null;
 
 export function DetalleSkeleton() {
@@ -117,15 +117,15 @@ export function DetalleAtencion({ id }: { id: string }) {
   const dias = duracionDias(a.fechaIngreso, a.fechaEgreso);
   const hc = a.hcIngreso[0];
   const cantPacs = pacs.data?.estudios.length ?? 0;
+  const cantAdjuntos = adj.data?.adjuntos.length ?? 0;
+  const cantEstudios = cantAdjuntos + cantPacs;
   const tabs: { id: Tab; label: string; disabled?: boolean; count?: number }[] = [
     { id: "resumen", label: "Resumen" },
     { id: "hc", label: "Historia de ingreso", disabled: !a.hcIngreso.length },
     { id: "diagnostico", label: "Diagnóstico", disabled: !a.diagnostico && !a.diagnosticoEgreso },
     { id: "epicrisis", label: "Epicrisis", disabled: !a.epicrisis.length },
-    { id: "adjuntos", label: "Estudios y adjuntos", count: adj.data?.adjuntos.length },
-    { id: "pacs", label: "Imágenes PACS", count: cantPacs || undefined },
+    { id: "adjuntos", label: "Estudios y adjuntos", count: cantEstudios || undefined },
   ];
-  const cantAdjuntos = adj.data?.adjuntos.length ?? 0;
 
   async function exportarPdf() {
     setPdfError(null);
@@ -252,29 +252,19 @@ export function DetalleAtencion({ id }: { id: string }) {
                   </span>
                 </button>
               )}
-              {cantAdjuntos > 0 && (
+              {cantEstudios > 0 && (
                 <button onClick={() => setTab("adjuntos")} className="flex w-full items-center gap-4 rounded-3xl border border-brand-100 bg-brand-50/60 p-5 text-left transition hover:bg-brand-50 sm:p-6">
                   <Paperclip className="size-7 shrink-0 text-brand-600" />
                   <span>
                     <span className="block font-semibold text-ink">
-                      {cantAdjuntos} {cantAdjuntos === 1 ? "estudio o archivo adjunto" : "estudios o archivos adjuntos"}
+                      {cantEstudios} {cantEstudios === 1 ? "estudio o archivo" : "estudios o archivos"}
+                      {cantPacs > 0 ? ` · ${cantPacs} PACS` : ""}
                     </span>
-                    <span className="block text-sm text-slate-500">Informes, imágenes y documentos de esta atención. Podés verlos o descargarlos.</span>
+                    <span className="block text-sm text-slate-500">Informes, adjuntos e imágenes del tomógrafo. Podés verlos, reproducirlos o descargarlos.</span>
                   </span>
                 </button>
               )}
-              {cantPacs > 0 && (
-                <button onClick={() => setTab("pacs")} className="flex w-full items-center gap-4 rounded-3xl border border-indigo-100 bg-indigo-50/50 p-5 text-left transition hover:bg-indigo-50 sm:p-6">
-                  <Scan className="size-7 shrink-0 text-indigo-600" />
-                  <span>
-                    <span className="block font-semibold text-ink">
-                      {cantPacs} {cantPacs === 1 ? "estudio de imágenes" : "estudios de imágenes"}
-                    </span>
-                    <span className="block text-sm text-slate-500">Tomografías y estudios DICOM del tomógrafo de esta atención.</span>
-                  </span>
-                </button>
-              )}
-              {!a.diagnostico && !hc && !a.epicrisis.length && !cantAdjuntos && !cantPacs && <Vacio>Esta atención todavía no tiene información clínica publicada.</Vacio>}
+              {!a.diagnostico && !hc && !a.epicrisis.length && !cantEstudios && <Vacio>Esta atención todavía no tiene información clínica publicada.</Vacio>}
             </>
           )}
 
@@ -327,9 +317,14 @@ export function DetalleAtencion({ id }: { id: string }) {
                 {e.diagnostico && <DiagnosticoCard titulo="Diagnóstico al alta" d={e.diagnostico} />}
               </div>
             ))}
-          {tab === "adjuntos" && <AdjuntosPanel {...adj} clinica={a.clinica.nombre} />}
-          {tab === "pacs" && (
-            <PacsPanel {...pacs} clinica={a.clinica.nombre} onCompartir={compartirEstudio} />
+          {tab === "adjuntos" && (
+            <div className="space-y-8">
+              <AdjuntosPanel {...adj} clinica={a.clinica.nombre} />
+              <PacsPanel {...pacs} clinica={a.clinica.nombre} onCompartir={compartirEstudio} embebido />
+              {!adj.cargando && !pacs.cargando && !cantAdjuntos && !cantPacs && (
+                <Vacio>Esta atención no tiene estudios, adjuntos ni imágenes PACS.</Vacio>
+              )}
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

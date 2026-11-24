@@ -174,14 +174,7 @@ export function AdjuntosPanel({
       </div>
     );
   }
-  if (!data.adjuntos.length) {
-    return (
-      <div className="rounded-3xl border border-dashed border-slate-200 p-10 text-center text-sm text-slate-500">
-        <Paperclip className="mx-auto mb-2 size-6 text-slate-300" aria-hidden />
-        Esta atención no tiene estudios ni archivos adjuntos.
-      </div>
-    );
-  }
+  if (!data.adjuntos.length) return null;
   return (
     <div className="space-y-3">
       <ul className="space-y-3">
