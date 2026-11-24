@@ -64,3 +64,15 @@ describe('visitaDueniaDelEstudio', () => {
     assert.equal(v.numeroVisita, 9);
   });
 });
+
+describe('filtrarEstudiosDeVisita con gracia post-egreso', () => {
+  it('asocia un estudio días después de un ambulatorio si la ventana se extendió', () => {
+    const r = filtrarEstudiosDeVisita([estudio('tac', '20261124')], {
+      numeroVisita: 21842,
+      desde: '2026-11-20',
+      hasta: '2026-11-24', // egreso 20 + gracia ya aplicada por listarPorAtencion
+      visitasPaciente: [{ numeroVisita: 21842, desde: '2026-11-20', hasta: '2026-11-24' }]
+    });
+    assert.equal(r.length, 1);
+  });
+});

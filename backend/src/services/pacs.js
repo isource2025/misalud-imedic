@@ -13,10 +13,25 @@ const KIND_EST = 'pacs';
 const KIND_FILE = 'pacsfile';
 const TIMEOUT_MS = Number(process.env.PACS_TIMEOUT_MS || 60_000);
 
+// Días extra después del egreso para asociar estudios por fecha (p. ej. TAC ambulatorio
+// pedido el día de la consulta e informado/realizado unos días después).
+const GRACIA_DIAS = Math.max(0, Number(process.env.PACS_GRACIA_DIAS || 14));
+
 function ymd(v) {
   const s = String(v || '').trim();
   const m = s.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
   return m ? `${m[1]}${m[2]}${m[3]}` : '';
+}
+
+/** Extiende el techo de fechas con gracia, sin pasar de hoy. */
+function hastaConGracia(hastaIso) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const base = String(hastaIso || hoy).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base) || !GRACIA_DIAS) return base < hoy ? hoy : base;
+  const d = new Date(`${base}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + GRACIA_DIAS);
+  const gracia = d.toISOString().slice(0, 10);
+  return gracia > hoy ? hoy : gracia;
 }
 
 function visitaCubreFecha(visita, studyDateYmd) {
@@ -134,11 +149,16 @@ async function listarPorAtencion(cuenta, idAtencion) {
     throw noDisponible(empresa, err);
   }
 
+  // Gracia post-egreso: un TAC ambulatorio suele figurar días después de la consulta.
+  const visitasConGracia = (ctx.visitasPaciente || []).map((v) => ({
+    ...v,
+    hasta: hastaConGracia(v.hasta)
+  }));
   const filtrados = filtrarEstudiosDeVisita(studies, {
     numeroVisita,
     desde: ctx.desde,
-    hasta: ctx.hasta,
-    visitasPaciente: ctx.visitasPaciente
+    hasta: hastaConGracia(ctx.hasta),
+    visitasPaciente: visitasConGracia
   });
 
   out.estudios = filtrados.map((s) => {
