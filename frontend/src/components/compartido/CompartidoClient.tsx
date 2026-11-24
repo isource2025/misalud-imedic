@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PacsSerieViewer } from "@/components/portal/PacsSerieViewer";
 import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
+import { filtrarArchivosDeSerie, seriePrincipal } from "@/lib/pacsSeries";
 import type { PacsArchivo, PacsSerie } from "@/lib/types";
 
 type Meta = { tipo: string; meta: string; expiraEn: string; tieneArchivo: boolean };
@@ -14,15 +15,6 @@ type PacsContenido = {
   series: PacsSerie[];
   archivos: PacsArchivo[];
 };
-
-function seriePrincipal(series: PacsSerie[]) {
-  const utiles = series.filter((s) => {
-    const d = `${s.description || ""} ${s.modality || ""}`.toUpperCase();
-    return !/DOSE|INFORME|SAVED STATE|LOCALIZER|SCOUT/.test(d);
-  });
-  const pool = utiles.length ? utiles : series;
-  return [...pool].sort((a, b) => (b.instanceCount || 0) - (a.instanceCount || 0))[0] || null;
-}
 
 export function CompartidoSkeleton() {
   return (
@@ -60,7 +52,7 @@ export function CompartidoClient({ token }: { token: string }) {
           if (cancel) return;
           const data = cb as PacsContenido;
           setPacs(data);
-          const principal = seriePrincipal(data.series || []);
+          const principal = seriePrincipal(data.series || [], data.archivos || []);
           setSerieActiva(principal?.id || data.series?.[0]?.id || null);
         }
       } catch (err) {
@@ -74,14 +66,10 @@ export function CompartidoClient({ token }: { token: string }) {
     };
   }, [token]);
 
-  const archivosSerie = useMemo(() => {
-    if (!pacs?.archivos || !serieActiva) return [];
-    return pacs.archivos.filter((a) => {
-      if (a.seriesUid && a.seriesUid === serieActiva) return true;
-      const ruta = (a.ruta || a.nombre || "").replace(/\\/g, "/");
-      return ruta === serieActiva || ruta.startsWith(`${serieActiva}/`);
-    });
-  }, [pacs, serieActiva]);
+  const archivosSerie = useMemo(
+    () => filtrarArchivosDeSerie(pacs?.archivos || [], serieActiva),
+    [pacs, serieActiva]
+  );
 
   const serieMeta = pacs?.series?.find((s) => s.id === serieActiva) || null;
   const archivosVisor = pacs?.series?.length ? archivosSerie : pacs?.archivos || [];
@@ -135,20 +123,23 @@ export function CompartidoClient({ token }: { token: string }) {
             <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-soft sm:p-5">
               {pacs.series?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {pacs.series.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSerieActiva(s.id)}
-                      className={clsx(
-                        "rounded-xl px-3 py-1.5 text-xs font-medium transition",
-                        serieActiva === s.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      )}
-                    >
-                      {s.number}. {s.description || s.modality || "Serie"}
-                      {s.instanceCount ? ` · ${s.instanceCount}` : ""}
-                    </button>
-                  ))}
+                  {pacs.series.map((s) => {
+                    const n = filtrarArchivosDeSerie(pacs.archivos || [], s.id).length;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSerieActiva(s.id)}
+                        className={clsx(
+                          "rounded-xl px-3 py-1.5 text-xs font-medium transition",
+                          serieActiva === s.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        )}
+                      >
+                        {s.number}. {s.description || s.modality || "Serie"}
+                        {s.instanceCount ? ` · ${s.instanceCount}` : n ? ` · ${n}` : ""}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -161,7 +152,11 @@ export function CompartidoClient({ token }: { token: string }) {
                   archivoBase={`/api/c/${encodeURIComponent(token)}/archivo/`}
                 />
               ) : (
-                <p className="text-sm text-slate-500">No hay imágenes para esta serie.</p>
+                <p className="text-sm text-slate-500">
+                  {pacs.archivos?.length
+                    ? "No hay imágenes asociadas a esta serie en disco. Probá otra serie."
+                    : "No hay imágenes para este estudio."}
+                </p>
               )}
             </div>
           )}

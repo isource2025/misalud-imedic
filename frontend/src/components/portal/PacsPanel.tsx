@@ -8,6 +8,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
 import { api, mensajeError } from "@/lib/api";
 import { fechaCorta } from "@/lib/format";
+import { filtrarArchivosDeSerie, seriePrincipal } from "@/lib/pacsSeries";
 import type { PacsArchivo, PacsEstudio, PacsResponse, PacsSerie } from "@/lib/types";
 
 type Props = {
@@ -20,15 +21,6 @@ type Props = {
   /** Si true, omite el título de sección (cuando ya está dentro de Estudios y adjuntos). */
   embebido?: boolean;
 };
-
-function seriePrincipal(series: PacsSerie[]) {
-  const utiles = series.filter((s) => {
-    const d = `${s.description || ""} ${s.modality || ""}`.toUpperCase();
-    return !/DOSE|INFORME|SAVED STATE|LOCALIZER|SCOUT/.test(d);
-  });
-  const pool = utiles.length ? utiles : series;
-  return [...pool].sort((a, b) => (b.instanceCount || 0) - (a.instanceCount || 0))[0] || null;
-}
 
 export function PacsPanel({ data, error, cargando, recargar, clinica, onCompartir, embebido }: Props) {
   const [abierto, setAbierto] = useState<PacsEstudio | null>(null);
@@ -155,7 +147,7 @@ function EstudioDetalle({
         if (cancel) return;
         setSeries(s.series);
         setArchivos(a.archivos);
-        const principal = seriePrincipal(s.series);
+        const principal = seriePrincipal(s.series, a.archivos);
         setSerieActiva(principal?.id || s.series[0]?.id || null);
       })
       .catch((err) => {
@@ -169,16 +161,10 @@ function EstudioDetalle({
     };
   }, [estudio.id]);
 
-  const archivosSerie = useMemo(() => {
-    if (!archivos || !serieActiva) return [];
-    const deSerie = archivos.filter((a) => {
-      if (a.seriesUid && a.seriesUid === serieActiva) return true;
-      const ruta = (a.ruta || a.nombre || "").replace(/\\/g, "/");
-      return ruta === serieActiva || ruta.startsWith(`${serieActiva}/`);
-    });
-    // Sin match: no tirar las 600+ del estudio entero (rompe rate limit). Quedarse vacío.
-    return deSerie;
-  }, [archivos, serieActiva]);
+  const archivosSerie = useMemo(
+    () => filtrarArchivosDeSerie(archivos || [], serieActiva),
+    [archivos, serieActiva]
+  );
 
   const serieMeta = series?.find((s) => s.id === serieActiva) || null;
 

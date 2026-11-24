@@ -70,8 +70,10 @@ router.get(
     }
 
     // pacs_estudio: lista archivos del estudio (JSON). El .dcm se pide por id opaco con el mismo token.
-    const archivos = await pacs.listarArchivos(cuenta, link.idEstudio);
     const series = await pacs.listarSeries(cuenta, link.idEstudio);
+    const archivos = await pacs.listarArchivos(cuenta, link.idEstudio, {
+      seriesIds: series.series.map((s) => s.id)
+    });
     auditar(req, {
       accion: 'enlace_pacs',
       idEmpresa: archivos._ref.idEmpresa,

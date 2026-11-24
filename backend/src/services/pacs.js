@@ -208,7 +208,25 @@ async function listarSeries(cuenta, idEstudio) {
   };
 }
 
-async function listarArchivos(cuenta, idEstudio) {
+/**
+ * Ajusta seriesUid de cada archivo contra los SeriesInstanceUID reales del estudio.
+ * Sirve cuando el path viene anidado (StudyUID/SeriesUID/…) o el padre no es la serie.
+ */
+function alinearSeriesUid(archivos, seriesIds) {
+  if (!seriesIds?.length) return archivos;
+  const uids = new Set(seriesIds.map((s) => String(s || '').trim()).filter(Boolean));
+  return archivos.map((a) => {
+    if (a.seriesUid && uids.has(String(a.seriesUid))) return a;
+    const segs = String(a.ruta || '')
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter(Boolean);
+    const hit = segs.find((s) => uids.has(s));
+    return hit ? { ...a, seriesUid: hit } : a;
+  });
+}
+
+async function listarArchivos(cuenta, idEstudio, { seriesIds } = {}) {
   const { empresa, uid, ref, ids, numeroVisita } = await resolverEstudio(cuenta, idEstudio);
   let files = [];
   try {
@@ -221,21 +239,23 @@ async function listarArchivos(cuenta, idEstudio) {
   } catch (err) {
     throw noDisponible(empresa, err);
   }
+  const archivos = files.map((f, i) => {
+    const path = String(f.path || f.filePath || f.name || `frame-${i}.dcm`).replace(/\\/g, '/');
+    // ClearCanvas: …/SeriesInstanceUID/SopInstanceUID.dcm (a veces con StudyUID arriba).
+    // El bridge /files no manda seriesUid: usamos la carpeta padre del .dcm.
+    const partes = path.split('/').filter(Boolean);
+    const seriesDesdePath = partes.length >= 2 ? partes[partes.length - 2] : null;
+    return {
+      id: sealId({ k: KIND_FILE, c: cuenta.id, e: empresa.idEmpresa, v: numeroVisita, u: uid, p: path }),
+      nombre: String(f.name || partes[partes.length - 1] || `imagen-${i + 1}.dcm`),
+      size: f.size != null ? Number(f.size) : null,
+      seriesUid: f.seriesInstanceUid || f.SeriesInstanceUID || seriesDesdePath || null,
+      // Ruta relativa al estudio (no es ruta de disco del servidor): sirve para filtrar por serie.
+      ruta: path
+    };
+  });
   return {
-    archivos: files.map((f, i) => {
-      const path = String(f.path || f.filePath || f.name || `frame-${i}.dcm`).replace(/\\/g, '/');
-      // ClearCanvas: carpeta = SeriesInstanceUID. El bridge /files no manda seriesUid.
-      const partes = path.split('/').filter(Boolean);
-      const seriesDesdePath = partes.length >= 2 ? partes[0] : null;
-      return {
-        id: sealId({ k: KIND_FILE, c: cuenta.id, e: empresa.idEmpresa, v: numeroVisita, u: uid, p: path }),
-        nombre: String(f.name || partes[partes.length - 1] || `imagen-${i + 1}.dcm`),
-        size: f.size != null ? Number(f.size) : null,
-        seriesUid: f.seriesInstanceUid || f.SeriesInstanceUID || seriesDesdePath || null,
-        // Ruta relativa al estudio (no es ruta de disco del servidor): sirve para filtrar por serie.
-        ruta: path
-      };
-    }),
+    archivos: alinearSeriesUid(archivos, seriesIds),
     _ref: { idEmpresa: empresa.idEmpresa, numeroVisita, uid }
   };
 }

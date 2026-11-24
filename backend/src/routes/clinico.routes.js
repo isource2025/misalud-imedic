@@ -117,7 +117,10 @@ router.get(
   '/pacs/estudios/:id/archivos',
   rl.pacsCuenta,
   asyncHandler(async (req, res) => {
-    const { _ref, ...r } = await pacs.listarArchivos(req.cuenta, req.params.id);
+    const series = await pacs.listarSeries(req.cuenta, req.params.id);
+    const { _ref, ...r } = await pacs.listarArchivos(req.cuenta, req.params.id, {
+      seriesIds: series.series.map((s) => s.id)
+    });
     auditar(req, { accion: 'pacs_archivos', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
     res.set('Cache-Control', 'no-store').json(r);
   })
