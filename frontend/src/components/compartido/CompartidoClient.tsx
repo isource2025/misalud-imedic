@@ -36,8 +36,14 @@ function IconoTipo({ tipo }: { tipo: string }) {
   return <FileText className="size-6" />;
 }
 
-function esImagenNombre(nombre: string) {
-  return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nombre);
+function esImagenMime(mime: string) {
+  return /^image\//i.test(mime);
+}
+
+function nombreDescarga(meta: Meta) {
+  if (meta.tipo === "pdf_atencion") return "historia-clinica.pdf";
+  const m = meta.meta.match(/Adjunto · (.+)$/);
+  return m?.[1] || "archivo";
 }
 
 export function CompartidoSkeleton() {
@@ -60,9 +66,12 @@ export function CompartidoClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [viendo, setViendo] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blobMime, setBlobMime] = useState("");
+  const [cargandoArchivo, setCargandoArchivo] = useState(false);
+  const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
 
   const contenidoUrl = `/api/c/${encodeURIComponent(token)}/contenido`;
-  const descargarUrl = `${contenidoUrl}?dl=1`;
 
   useEffect(() => {
     let cancel = false;
@@ -84,7 +93,6 @@ export function CompartidoClient({ token }: { token: string }) {
           setSerieActiva(principal?.id || data.series?.[0]?.id || null);
           setViendo(true);
         } else if (body.tipo === "pdf_atencion" || body.tipo === "adjunto") {
-          // PDF / adjunto: mostrar vista al abrir el link.
           setViendo(true);
         }
       } catch (err) {
@@ -98,6 +106,64 @@ export function CompartidoClient({ token }: { token: string }) {
     };
   }, [token, contenidoUrl]);
 
+  // PDF/adjunto: bajar como blob (evita frame-ancestors / X-Frame-Options del rewrite).
+  useEffect(() => {
+    if (!meta || !viendo) return;
+    if (meta.tipo !== "pdf_atencion" && meta.tipo !== "adjunto") return;
+
+    let cancel = false;
+    let objectUrl: string | null = null;
+    setCargandoArchivo(true);
+    setErrorArchivo(null);
+
+    (async () => {
+      try {
+        const res = await fetch(contenidoUrl, { credentials: "same-origin", cache: "no-store" });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error?.message || `No pudimos abrir el archivo (HTTP ${res.status}).`);
+        }
+        const mime = res.headers.get("content-type") || "application/octet-stream";
+        const buf = await res.blob();
+        if (cancel) return;
+        objectUrl = URL.createObjectURL(buf);
+        setBlobMime(mime);
+        setBlobUrl(objectUrl);
+      } catch (err) {
+        if (!cancel) setErrorArchivo(err instanceof Error ? err.message : "No pudimos cargar el archivo.");
+      } finally {
+        if (!cancel) setCargandoArchivo(false);
+      }
+    })();
+
+    return () => {
+      cancel = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setBlobUrl(null);
+    };
+  }, [meta, viendo, contenidoUrl]);
+
+  async function descargar() {
+    if (!meta) return;
+    setErrorArchivo(null);
+    try {
+      const res = await fetch(`${contenidoUrl}?dl=1`, { credentials: "same-origin", cache: "no-store" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message || "No pudimos descargar el archivo.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = nombreDescarga(meta);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 8000);
+    } catch (err) {
+      setErrorArchivo(err instanceof Error ? err.message : "No pudimos descargar.");
+    }
+  }
+
   const archivosSerie = useMemo(
     () => filtrarArchivosDeSerie(pacs?.archivos || [], serieActiva),
     [pacs, serieActiva]
@@ -106,7 +172,7 @@ export function CompartidoClient({ token }: { token: string }) {
   const serieMeta = pacs?.series?.find((s) => s.id === serieActiva) || null;
   const archivosVisor = pacs?.series?.length ? archivosSerie : pacs?.archivos || [];
   const tipoLabel = meta ? tipoLabelDe(meta.tipo, meta.tipoLabel) : "";
-  const adjuntoEsImagen = meta?.tipo === "adjunto" && esImagenNombre(meta.meta);
+  const esImagen = esImagenMime(blobMime);
 
   return (
     <main className="mx-auto min-h-dvh max-w-4xl px-5 py-10">
@@ -152,29 +218,33 @@ export function CompartidoClient({ token }: { token: string }) {
                   <Eye className="size-4" />
                   Ver
                 </button>
-                <a
-                  href={descargarUrl}
-                  download={meta.tipo === "pdf_atencion" ? "historia.pdf" : undefined}
+                <button
+                  type="button"
+                  onClick={() => void descargar()}
                   className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-200 sm:flex-none"
                 >
                   <Download className="size-4" />
                   Descargar
-                </a>
+                </button>
               </div>
             )}
           </div>
 
+          {errorArchivo && <Alert tone="error">{errorArchivo}</Alert>}
+
           {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && viendo && (
             <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-soft">
-              {meta.tipo === "adjunto" && adjuntoEsImagen ? (
+              {cargandoArchivo && (
+                <Cargando>
+                  <Skeleton className="h-[min(80vh,900px)] w-full" />
+                </Cargando>
+              )}
+              {!cargandoArchivo && blobUrl && esImagen && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={contenidoUrl} alt={meta.meta} className="mx-auto max-h-[80vh] w-full object-contain" />
-              ) : (
-                <iframe
-                  title={`Vista de ${meta.meta}`}
-                  src={contenidoUrl}
-                  className="h-[min(80vh,900px)] w-full border-0 bg-slate-50"
-                />
+                <img src={blobUrl} alt={meta.meta} className="mx-auto max-h-[80vh] w-full object-contain" />
+              )}
+              {!cargandoArchivo && blobUrl && !esImagen && (
+                <iframe title={`Vista de ${meta.meta}`} src={blobUrl} className="h-[min(80vh,900px)] w-full border-0 bg-slate-50" />
               )}
             </div>
           )}
