@@ -86,6 +86,7 @@ test('crea link temporal de PDF y lo abre sin sesión', async () => {
     });
   assert.equal(contenido.status, 200);
   assert.match(contenido.headers['content-type'], /pdf/);
+  assert.match(String(contenido.headers['content-disposition'] || ''), /attachment/);
 });
 
 test('comparte un estudio PACS con link temporal', async () => {

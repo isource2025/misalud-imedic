@@ -1,20 +1,32 @@
 "use client";
 
+import clsx from "clsx";
 import { Download, Link2, Scan } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PacsSerieViewer } from "@/components/portal/PacsSerieViewer";
 import { Alert } from "@/components/ui/Alert";
 import { Skeleton, Cargando } from "@/components/ui/Skeleton";
+import type { PacsArchivo, PacsSerie } from "@/lib/types";
 
 type Meta = { tipo: string; meta: string; expiraEn: string; tieneArchivo: boolean };
 type PacsContenido = {
   meta: string;
-  series: { id: string; number: number; description: string | null; modality: string | null; instanceCount: number | null }[];
-  archivos: { id: string; nombre: string }[];
+  series: PacsSerie[];
+  archivos: PacsArchivo[];
 };
+
+function seriePrincipal(series: PacsSerie[]) {
+  const utiles = series.filter((s) => {
+    const d = `${s.description || ""} ${s.modality || ""}`.toUpperCase();
+    return !/DOSE|INFORME|SAVED STATE|LOCALIZER|SCOUT/.test(d);
+  });
+  const pool = utiles.length ? utiles : series;
+  return [...pool].sort((a, b) => (b.instanceCount || 0) - (a.instanceCount || 0))[0] || null;
+}
 
 export function CompartidoSkeleton() {
   return (
-    <main className="mx-auto min-h-dvh max-w-lg px-5 py-10">
+    <main className="mx-auto min-h-dvh max-w-3xl px-5 py-10">
       <p className="flex items-center gap-2 text-sm font-semibold text-brand-700">
         <Link2 className="size-4" /> MiSalud · recurso compartido
       </p>
@@ -28,6 +40,7 @@ export function CompartidoSkeleton() {
 export function CompartidoClient({ token }: { token: string }) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [pacs, setPacs] = useState<PacsContenido | null>(null);
+  const [serieActiva, setSerieActiva] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
 
@@ -44,7 +57,11 @@ export function CompartidoClient({ token }: { token: string }) {
           const c = await fetch(`/api/c/${encodeURIComponent(token)}/contenido`, { credentials: "same-origin", cache: "no-store" });
           const cb = await c.json().catch(() => ({}));
           if (!c.ok) throw new Error(cb?.error?.message || "No pudimos cargar el estudio.");
-          if (!cancel) setPacs(cb as PacsContenido);
+          if (cancel) return;
+          const data = cb as PacsContenido;
+          setPacs(data);
+          const principal = seriePrincipal(data.series || []);
+          setSerieActiva(principal?.id || data.series?.[0]?.id || null);
         }
       } catch (err) {
         if (!cancel) setError(err instanceof Error ? err.message : "No pudimos abrir el link.");
@@ -57,8 +74,20 @@ export function CompartidoClient({ token }: { token: string }) {
     };
   }, [token]);
 
+  const archivosSerie = useMemo(() => {
+    if (!pacs?.archivos || !serieActiva) return [];
+    return pacs.archivos.filter((a) => {
+      if (a.seriesUid && a.seriesUid === serieActiva) return true;
+      const ruta = (a.ruta || a.nombre || "").replace(/\\/g, "/");
+      return ruta === serieActiva || ruta.startsWith(`${serieActiva}/`);
+    });
+  }, [pacs, serieActiva]);
+
+  const serieMeta = pacs?.series?.find((s) => s.id === serieActiva) || null;
+  const archivosVisor = pacs?.series?.length ? archivosSerie : pacs?.archivos || [];
+
   return (
-    <main className="mx-auto min-h-dvh max-w-lg px-5 py-10">
+    <main className="mx-auto min-h-dvh max-w-4xl px-5 py-10">
       <p className="flex items-center gap-2 text-sm font-semibold text-brand-700">
         <Link2 className="size-4" /> MiSalud · recurso compartido
       </p>
@@ -85,8 +114,7 @@ export function CompartidoClient({ token }: { token: string }) {
               <div>
                 <h1 className="text-xl font-semibold tracking-tight">{meta.meta}</h1>
                 <p className="mt-1 text-sm text-slate-500">
-                  Disponible hasta{" "}
-                  {new Date(meta.expiraEn).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })}
+                  Disponible hasta {new Date(meta.expiraEn).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })}
                 </p>
               </div>
             </div>
@@ -95,29 +123,46 @@ export function CompartidoClient({ token }: { token: string }) {
           {(meta.tipo === "pdf_atencion" || meta.tipo === "adjunto") && (
             <a
               href={`/api/c/${encodeURIComponent(token)}/contenido`}
+              download={meta.tipo === "pdf_atencion" ? "historia.pdf" : undefined}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-semibold text-white transition hover:bg-brand-700"
             >
               <Download className="size-4" />
-              {meta.tipo === "pdf_atencion" ? "Ver PDF" : "Abrir archivo"}
+              {meta.tipo === "pdf_atencion" ? "Descargar PDF" : "Descargar archivo"}
             </a>
           )}
 
           {meta.tipo === "pacs_estudio" && pacs && (
-            <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-brand-600">Imágenes DICOM</h2>
-              <ul className="mt-3 divide-y divide-slate-50">
-                {pacs.archivos.map((a) => (
-                  <li key={a.id} className="flex items-center gap-3 py-2.5">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{a.nombre}</span>
-                    <a
-                      href={`/api/c/${encodeURIComponent(token)}/archivo/${encodeURIComponent(a.id)}`}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand-50 px-3 text-sm font-medium text-brand-700 hover:bg-brand-100"
+            <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-soft sm:p-5">
+              {pacs.series?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pacs.series.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSerieActiva(s.id)}
+                      className={clsx(
+                        "rounded-xl px-3 py-1.5 text-xs font-medium transition",
+                        serieActiva === s.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      )}
                     >
-                      <Download className="size-3.5" /> Descargar
-                    </a>
-                  </li>
-                ))}
-              </ul>
+                      {s.number}. {s.description || s.modality || "Serie"}
+                      {s.instanceCount ? ` · ${s.instanceCount}` : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {archivosVisor.length ? (
+                <PacsSerieViewer
+                  estudioId="compartido"
+                  archivos={archivosVisor}
+                  modality={serieMeta?.modality || null}
+                  titulo={meta.meta}
+                  archivoBase={`/api/c/${encodeURIComponent(token)}/archivo/`}
+                />
+              ) : (
+                <p className="text-sm text-slate-500">No hay imágenes para esta serie.</p>
+              )}
             </div>
           )}
 

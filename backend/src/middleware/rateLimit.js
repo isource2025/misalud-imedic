@@ -30,13 +30,25 @@ const porCuenta = (limit, minutos) =>
     keyGenerator: (req) => `cuenta:${req.cuenta.id}`
   });
 
+/** Streaming de DICOM / adjuntos: no cuenta contra el cupo general (son cientos de GETs por estudio). */
+const esStreamClinico = (req) =>
+  /\/pacs\/archivos\/|\/adjuntos\/[^/]+\/archivo|\/c\/[^/]+\/archivo\//.test(String(req.originalUrl || req.url || ''));
+
 module.exports = {
-  adjuntosCuenta: porCuenta(120, 15),
-  pacsCuenta: porCuenta(180, 15),
+  adjuntosCuenta: porCuenta(400, 15),
+  // Un TAC puede pedir 200–700 .dcm; el cupo tiene que bancar una sesión de visor.
+  pacsCuenta: porCuenta(4000, 15),
   pdfCuenta: porCuenta(30, 15),
   compartirCuenta: porCuenta(40, 60),
-  compartirPublico: porIp(60, 15),
-  general: porIp(300, 5),
+  compartirPublico: porIp(4000, 15),
+  general: rateLimit({
+    windowMs: 5 * 60_000,
+    limit: 800,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler,
+    skip: esStreamClinico
+  }),
   loginIp: porIp(30, 15),
   loginDni: porDni(8, 15),
   registroIp: porIp(10, 60),

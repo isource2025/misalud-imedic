@@ -171,8 +171,13 @@ function EstudioDetalle({
 
   const archivosSerie = useMemo(() => {
     if (!archivos || !serieActiva) return [];
-    const deSerie = archivos.filter((a) => a.seriesUid === serieActiva);
-    return deSerie.length ? deSerie : archivos;
+    const deSerie = archivos.filter((a) => {
+      if (a.seriesUid && a.seriesUid === serieActiva) return true;
+      const ruta = (a.ruta || a.nombre || "").replace(/\\/g, "/");
+      return ruta === serieActiva || ruta.startsWith(`${serieActiva}/`);
+    });
+    // Sin match: no tirar las 600+ del estudio entero (rompe rate limit). Quedarse vacío.
+    return deSerie;
   }, [archivos, serieActiva]);
 
   const serieMeta = series?.find((s) => s.id === serieActiva) || null;

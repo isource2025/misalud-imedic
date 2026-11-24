@@ -490,7 +490,8 @@ module.exports = {
     const n = Number(estudio?.numberOfStudyRelatedInstances || 2);
     const seriesUid = `${uid}.s1`;
     return Array.from({ length: n }, (_, i) => ({
-      path: `${uid}/IMG${String(i + 1).padStart(4, '0')}.dcm`,
+      // Misma convención ClearCanvas: carpeta = SeriesInstanceUID
+      path: `${seriesUid}/IMG${String(i + 1).padStart(4, '0')}.dcm`,
       name: `IMG${String(i + 1).padStart(4, '0')}.dcm`,
       size: 4096 + i * 128,
       seriesInstanceUid: seriesUid

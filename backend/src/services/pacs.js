@@ -223,12 +223,17 @@ async function listarArchivos(cuenta, idEstudio) {
   }
   return {
     archivos: files.map((f, i) => {
-      const path = String(f.path || f.filePath || f.name || `frame-${i}.dcm`);
+      const path = String(f.path || f.filePath || f.name || `frame-${i}.dcm`).replace(/\\/g, '/');
+      // ClearCanvas: carpeta = SeriesInstanceUID. El bridge /files no manda seriesUid.
+      const partes = path.split('/').filter(Boolean);
+      const seriesDesdePath = partes.length >= 2 ? partes[0] : null;
       return {
         id: sealId({ k: KIND_FILE, c: cuenta.id, e: empresa.idEmpresa, v: numeroVisita, u: uid, p: path }),
-        nombre: String(f.name || path.split(/[\\/]/).pop() || `imagen-${i + 1}.dcm`),
+        nombre: String(f.name || partes[partes.length - 1] || `imagen-${i + 1}.dcm`),
         size: f.size != null ? Number(f.size) : null,
-        seriesUid: f.seriesInstanceUid || f.SeriesInstanceUID || null
+        seriesUid: f.seriesInstanceUid || f.SeriesInstanceUID || seriesDesdePath || null,
+        // Ruta relativa al estudio (no es ruta de disco del servidor): sirve para filtrar por serie.
+        ruta: path
       };
     }),
     _ref: { idEmpresa: empresa.idEmpresa, numeroVisita, uid }

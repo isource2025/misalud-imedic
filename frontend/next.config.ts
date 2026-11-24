@@ -8,6 +8,7 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
   "font-src 'self'",
   `connect-src 'self'${isDev ? " ws:" : ""}`,
   "frame-ancestors 'none'",

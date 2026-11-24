@@ -44,16 +44,17 @@ router.get(
     if (link.tipo === 'pdf_atencion') {
       const { buffer, nombre, _ref } = await pdfHistoria.generarBuffer(cuenta, link.idAtencion);
       auditar(req, { accion: 'enlace_pdf', idEmpresa: _ref.idEmpresa, recurso: `visita:${_ref.numeroVisita}` });
+      // attachment: el botón del link compartido es "Descargar", no vista previa.
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${nombre}"`,
+        'Content-Disposition': `attachment; filename="${nombre}"`,
         'Cache-Control': 'private, no-store'
       });
       return res.send(buffer);
     }
 
     if (link.tipo === 'adjunto') {
-      const abierto = await adjuntos.abrir(cuenta, link.idAdjunto, { descargar: false });
+      const abierto = await adjuntos.abrir(cuenta, link.idAdjunto, { descargar: true });
       const { res: origen, headers, _ref } = abierto;
       auditar(req, {
         accion: 'enlace_adjunto',
@@ -102,7 +103,7 @@ router.get(
       err.status = 404;
       throw err;
     }
-    await compartir.consumirUso(link.id);
+    // No consumir uso por cada .dcm: el cupo se gasta al abrir el link / contenido.
     const { res: origen, headers, _ref } = abierto;
     auditar(req, {
       accion: 'enlace_pacs_archivo',

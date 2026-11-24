@@ -68,6 +68,8 @@ export type PacsArchivo = {
   nombre: string;
   size: number | null;
   seriesUid: string | null;
+  /** Ruta relativa al estudio en el bridge (p. ej. SeriesUID/img.dcm). */
+  ruta?: string | null;
 };
 
 export type PacsResponse = {

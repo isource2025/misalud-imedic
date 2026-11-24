@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/Alert";
 import { parseDicomFrame, renderDicomFrame, type DicomFrame } from "@/lib/dicomFrame";
 import type { PacsArchivo } from "@/lib/types";
 
-const CONCURRENCIA = 4;
+const CONCURRENCIA = 3;
 const FPS_OPCIONES = [5, 10, 15, 20];
 const PRESETS_CT = [
   { id: "blandas", label: "Partes blandas", wc: 40, ww: 400 },
@@ -23,14 +23,29 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function fetchConReintento(url: string, signal: AbortSignal, intentos = 4) {
+  let espera = 400;
+  for (let i = 0; i < intentos; i++) {
+    const res = await fetch(url, { credentials: "same-origin", signal, cache: "no-store" });
+    if (res.status !== 429 && res.status !== 503) return res;
+    if (i === intentos - 1) return res;
+    await sleep(espera);
+    espera = Math.min(espera * 2, 4000);
+  }
+  throw new Error("Sin respuesta");
+}
+
 type Props = {
   estudioId: string;
   archivos: PacsArchivo[];
   modality: string | null;
   titulo: string;
+  /** Prefijo URL del .dcm. Default sesión: `/api/pacs/archivos/`. Público: `/api/c/{token}/archivo/`. */
+  archivoBase?: string;
 };
 
-export function PacsSerieViewer({ estudioId, archivos, modality, titulo }: Props) {
+export function PacsSerieViewer({ estudioId, archivos, modality, titulo, archivoBase = "/api/pacs/archivos/" }: Props) {
+  const urlDe = (id: string) => `${archivoBase}${encodeURIComponent(id)}`;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const framesRef = useRef<(DicomFrame | null)[]>([]);
@@ -76,12 +91,8 @@ export function PacsSerieViewer({ estudioId, archivos, modality, titulo }: Props
         if (j >= inicial.length) return;
         const idx = inicial[j];
         try {
-          const res = await fetch(`/api/pacs/archivos/${encodeURIComponent(lista[idx].id)}`, {
-            credentials: "same-origin",
-            signal: controller.signal,
-            cache: "no-store",
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const res = await fetchConReintento(urlDe(lista[idx].id), controller.signal);
+          if (!res.ok) throw new Error(res.status === 429 ? "Demasiados pedidos; reintentá en unos segundos." : `HTTP ${res.status}`);
           const buffer = await res.arrayBuffer();
           const frame = parseDicomFrame(buffer);
           if (controller.signal.aborted) return;
@@ -106,7 +117,7 @@ export function PacsSerieViewer({ estudioId, archivos, modality, titulo }: Props
 
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estudioId, filesKey]);
+  }, [estudioId, filesKey, archivoBase]);
 
   const frameActual = orden.length ? framesRef.current[orden[pos]] : null;
 
@@ -211,11 +222,13 @@ export function PacsSerieViewer({ estudioId, archivos, modality, titulo }: Props
       rec.start(100);
 
       const delay = Math.max(40, Math.round(1000 / fps));
-      for (let i = 0; i < orden.length; i++) {
-        const frame = framesRef.current[orden[i]];
-        if (frame) renderDicomFrame(canvas, frame, ventana.wc, ventana.ww);
+      const indices = orden.filter((i) => framesRef.current[i]);
+      if (!indices.length) throw new Error("Todavía no hay cortes cargados para armar el video.");
+      for (let n = 0; n < indices.length; n++) {
+        const frame = framesRef.current[indices[n]]!;
+        renderDicomFrame(canvas, frame, ventana.wc, ventana.ww);
         track.requestFrame?.();
-        setPos(i);
+        setPos(orden.indexOf(indices[n]));
         await sleep(delay);
       }
 
@@ -318,7 +331,7 @@ export function PacsSerieViewer({ estudioId, archivos, modality, titulo }: Props
         <button
           type="button"
           onClick={() => void descargarVideo()}
-          disabled={exportando || cargados < total || fallidos === total}
+          disabled={exportando || cargados < Math.min(total, Math.max(8, Math.ceil(total * 0.35))) || fallidos === total}
           className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
         >
           {exportando ? <RotateCw className="size-4 animate-spin" /> : <Download className="size-4" />}
